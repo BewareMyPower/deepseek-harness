@@ -15,6 +15,7 @@ import {
 } from './sessions.schema.ts'
 import { taskViewSchema } from './jobs.schema.ts'
 import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema.ts'
+import { folderIdSchema, folderViewSchema } from './folder.schema.ts'
 
 /** Question fields validated strictly against core dsh-user-questions. */
 export const askUserQuestionItemSchema = z.object({
@@ -84,6 +85,9 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('host/workspace-removed'), workspaceId: workspaceIdSchema }),
   z.object({ type: z.literal('host/workspace-order-changed'), workspaceIds: z.array(workspaceIdSchema) }),
   z.object({ type: z.literal('host/archived-sessions-changed'), archivedSessionIds: z.array(sessionIdSchema) }),
+  z.object({ type: z.literal('host/folder-changed'), folder: folderViewSchema }),
+  z.object({ type: z.literal('host/folder-removed'), folderId: folderIdSchema }),
+  z.object({ type: z.literal('host/folder-order-changed'), folderIds: z.array(folderIdSchema) }),
   // args stays wide, the same posture as session/projection's value: the frame
   // arrives from JSON.parse, so every element is already a JSON value, and the
   // structural contract belongs to the owner package's cordis `Events`

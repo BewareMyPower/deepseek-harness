@@ -210,6 +210,76 @@ function assertNever(value: never): never {
   throw new Error(`unknown pending interaction: ${String(value)}`)
 }
 
+/**
+ * Folder header row: a titled, expandable container of sessions grouped by
+ * user topic. Renders a folder glyph + title; hover reveals the chevron and
+ * an action menu (rename / delete). No new-session create button — a folder
+ * has no backing directory to start a session in.
+ * @param props.group - derived group node (kind 'folder').
+ * @param props.onToggle - expand/collapse the folder.
+ * @param props.actions - rename/delete handlers.
+ * @param props.t - the browser root's locale seat.
+ * @returns the folder row element.
+ */
+export function FolderRowItem({ group, onToggle, actions, t }: {
+  group: GroupNode
+  onToggle: () => void
+  actions: { rename: () => void; delete: () => void }
+  t: RowTranslate
+}) {
+  const row = group
+  const label = row.label
+  const [menuOpen, setMenuOpen] = useState(false)
+  const folderMenuItems = [
+    { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
+    { id: 'delete', label: t('delete.folder'), icon: <IconTrashOutline16 />, danger: true },
+  ]
+  return (
+    <div
+      className={clsx(css.projectRow, menuOpen && css.menuOpen)}
+      role="treeitem"
+      aria-expanded={row.expanded}
+      onClick={onToggle}
+    >
+      <span className={clsx(css.slot, css.folder, row.expanded && css.folderActive)}>
+        {row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />}
+      </span>
+      <span className={clsx(css.slot, css.chevron)}>
+        <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
+      </span>
+      <span className={css.projectText}>
+        <span className={css.title}>{label}</span>
+      </span>
+      <span className={css.rowActions}>
+        <Menu
+          open={menuOpen}
+          onClose={() => { setMenuOpen(false) }}
+          items={folderMenuItems}
+          onSelect={(id) => {
+            setMenuOpen(false)
+            /* v8 ignore next -- folderMenuItems carries exactly these two rows today. */
+            if (id !== 'rename' && id !== 'delete') return
+            if (id === 'rename') actions.rename()
+            else actions.delete()
+          }}
+          portal
+          closeOnPointerLeave
+          anchor={(
+            <button
+              type="button"
+              className={css.iconButton}
+              aria-label={t('actions.folder.aria', { name: label })}
+              onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
+            >
+              <IconEllipsisOutline16 />
+            </button>
+          )}
+        />
+      </span>
+    </div>
+  )
+}
+
 interface SessionStatus {
   state: StateDotState
   label: string
@@ -350,7 +420,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @param props.t - the browser root's locale seat.
  * @returns the session row.
  */
-export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, t }: {
+export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onMoveToFolder, drag, flat = false, t }: {
   node: SessionNode
   currentId: string | undefined
   now: number
@@ -361,6 +431,9 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   onFork: (id: SessionNode['id']) => void
   /** Archive this session (row menu action; commits without a dialog). */
   onArchive: (id: SessionNode['id']) => void
+  /** Move this session into a folder (opens the folder picker). Optional: only
+   *  present when a folder capability is composed into the sidebar. */
+  onMoveToFolder?: (id: SessionNode['id']) => void
   /** Present only on draggable rows (workspace-group sessions outside search). */
   drag?: RowDragProps | undefined
   /** The row is rendered without a parent Workspace header. */
@@ -379,11 +452,14 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   // confirmation dialog.
   const sessionMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
+    // Folder move is only offered when a folder capability is composed.
+    ...(onMoveToFolder !== undefined
+      ? [{ id: 'moveFolder', label: t('menu.moveToFolder'), icon: <IconFolderClose16 /> } as const]
+      : []),
     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
     // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
     { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
-  ]
-  // Figma session cell: pad 8, status slot 16, then a 4px title gap.
+  ]  // Figma session cell: pad 8, status slot 16, then a 4px title gap.
   const ownRow = (
     <div
       className={clsx(
@@ -442,6 +518,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
             onSelect={(id) => {
               setMenuOpen(false)
               if (id === 'rename') onRename(node.id, row.title)
+              if (id === 'moveFolder') onMoveToFolder?.(node.id)
               if (id === 'fork') onFork(node.id)
               if (id === 'archive') onArchive(node.id)
             }}

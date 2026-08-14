@@ -34,6 +34,23 @@ async function createRuntime(): Promise<SlotTestRuntime> {
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.provide('locale', locale)
   runtime.slots.installLocale(locale)
+  const folderList = { items: [], state: 'idle', phase: 'ready', error: null }
+  runtime.provide('folders', {
+    list: { getSnapshot: () => folderList, subscribe: () => () => {} },
+    create: vi.fn(async (title: string) => ({
+      folderId: 'folder-new' as never, title, sessionIds: [], createdAt: '0', updatedAt: '0',
+    })),
+    rename: vi.fn(async (folderId: never, title: string) => ({
+      folderId, title, sessionIds: [], createdAt: '0', updatedAt: '0',
+    })),
+    delete: vi.fn(async () => {}),
+    addSession: vi.fn(async (folderId: never, _sessionId: never) => ({
+      folderId, title: 'folder', sessionIds: [], createdAt: '0', updatedAt: '0',
+    })),
+    removeSession: vi.fn(async (folderId: never, _sessionId: never) => ({
+      folderId, title: 'folder', sessionIds: [], createdAt: '0', updatedAt: '0',
+    })),
+  } as never)
   return runtime
 }
 

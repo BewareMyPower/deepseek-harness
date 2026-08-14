@@ -15,6 +15,9 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
+// Type-only: resolves `ctx.folderRegistry` (the session-folder registry) in
+// this program's cordis Context merge.
+import type {} from '@deepseek-ai/dsh-session-folder'
 import type { ApiProxy } from './api/index.ts'
 import { createApiProxy, DEFAULT_COLD_BLANK_PROBE_MAX_BYTES } from './api-proxy.ts'
 import {
@@ -69,7 +72,7 @@ export interface Config {
 export class ApiProxyService extends Service implements ApiProxy {
   static inject = [
     'agentDefaultModel', 'agents', 'attachments', 'directoryPicker', 'llm', 'sessions', 'subagents', 'sessionQuery',
-    'tools', 'userQuestions', 'workspaceRegistry',
+    'tools', 'userQuestions', 'workspaceRegistry', 'folderRegistry',
   ]
 
   static Config: z<Config> = z.object({
@@ -82,6 +85,7 @@ export class ApiProxyService extends Service implements ApiProxy {
   readonly sessions: ApiProxy['sessions']
   readonly subagents: ApiProxy['subagents']
   readonly workspace: ApiProxy['workspace']
+  readonly folder: ApiProxy['folder']
   readonly host: ApiProxy['host']
   readonly goals: ApiProxy['goals']
   readonly skills: ApiProxy['skills']
@@ -110,6 +114,7 @@ export class ApiProxyService extends Service implements ApiProxy {
     this.sessions = api.sessions
     this.subagents = api.subagents
     this.workspace = api.workspace
+    this.folder = api.folder
     this.host = api.host
     this.goals = api.goals
     this.skills = api.skills

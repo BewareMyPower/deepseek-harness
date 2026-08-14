@@ -36,11 +36,31 @@ async function bench() {
     create, startSession, rename, insertSessionBefore,
   } as never)
   ctx.provide('sessions', { open, clear, search, searchResultLimit: 20, binding, fork } as never)
+  const createFolder = vi.fn(async (title: string) => ({
+    folderId: 'folder-new' as never, title, sessionIds: [], createdAt: '0', updatedAt: '0',
+  }))
+  const renameFolder = vi.fn(async (folderId: never, title: string) => ({
+    folderId, title, sessionIds: [], createdAt: '0', updatedAt: '0',
+  }))
+  const deleteFolder = vi.fn(async () => {})
+  const addSessionToFolder = vi.fn(async (folderId: never, _sessionId: never) => ({
+    folderId, title: 'folder', sessionIds: [], createdAt: '0', updatedAt: '0',
+  }))
+  const removeSessionFromFolder = vi.fn(async (folderId: never, _sessionId: never) => ({
+    folderId, title: 'folder', sessionIds: [], createdAt: '0', updatedAt: '0',
+  }))
+  const folderList = { items: [], state: 'idle', phase: 'ready', error: null }
+  ctx.provide('folders', {
+    list: { getSnapshot: () => folderList, subscribe: () => () => {} },
+    create: createFolder, rename: renameFolder, delete: deleteFolder,
+    addSession: addSessionToFolder, removeSession: removeSessionFromFolder,
+  } as never)
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, startSession, rename,
     insertSessionBefore, open, clear, search, renameSession, binding, fork,
+    createFolder, renameFolder, deleteFolder, addSessionToFolder, removeSessionFromFolder,
   }
 }
 
@@ -54,7 +74,7 @@ function declare(slots: SlotRegistry, ...names: HoleName[]): () => void {
 
 describe('ui-workspace apply', () => {
   it('declares the services it drives', () => {
-    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale'])
+    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'folders', 'locale'])
   })
 
   it('registers browser and pickers for declarations arriving before or after apply', async () => {

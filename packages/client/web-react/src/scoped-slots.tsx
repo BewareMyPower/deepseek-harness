@@ -352,6 +352,9 @@ function standardProps(
       root: {
         useSessions: observableHook(host.sessions.list),
         useWorkspaces: observableHook(host.workspaces.list),
+        ...(host.folders === undefined
+          ? {}
+          : { useFolders: observableHook(host.folders.list) }),
       },
       session: new WeakMap(),
       sessionMaybe: new WeakMap(),

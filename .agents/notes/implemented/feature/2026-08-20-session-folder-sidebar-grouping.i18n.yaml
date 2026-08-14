@@ -1,0 +1,4 @@
+# Bilingual-pair consistency record. After editing either side, re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-20-session-folder-sidebar-grouping.md
+2026-08-20-session-folder-sidebar-grouping.md: f257e4f1a0633f58934946123531938243e35dd3
+2026-08-20-session-folder-sidebar-grouping.zh.md: b2c08865e68358e0bd149976e4679b7b95c99b1d

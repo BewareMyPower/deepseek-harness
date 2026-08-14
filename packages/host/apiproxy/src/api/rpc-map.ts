@@ -7,6 +7,7 @@
 import type { SessionsApi } from './sessions.ts'
 import type { HostApi } from './host.ts'
 import type { WorkspaceApi } from './workspace.ts'
+import type { FolderApi } from './folder.ts'
 import type { AgentPresetsApi } from './agent-presets.ts'
 import type { SkillsApi } from './skills.ts'
 import type { GoalsApi } from './goals.ts'
@@ -50,6 +51,14 @@ export interface RpcMethodMap {
   'workspace.insertBefore': WorkspaceApi['insertBefore']
   'workspace.insertSessionBefore': WorkspaceApi['insertSessionBefore']
   'workspace.archiveSession': WorkspaceApi['archiveSession']
+  'folder.list': FolderApi['list']
+  'folder.create': FolderApi['create']
+  'folder.rename': FolderApi['rename']
+  'folder.delete': FolderApi['delete']
+  'folder.insertBefore': FolderApi['insertBefore']
+  'folder.addSession': FolderApi['addSession']
+  'folder.insertSessionBefore': FolderApi['insertSessionBefore']
+  'folder.removeSession': FolderApi['removeSession']
   'skill.list': SkillsApi['list']
   'agentPreset.list': AgentPresetsApi['list']
   'agentPreset.select': AgentPresetsApi['select']

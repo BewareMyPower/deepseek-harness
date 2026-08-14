@@ -6,7 +6,7 @@
 import {
   indexSubagentDescendants, type PendingInteractionStatus, type SessionId, type SessionListState,
   type SessionSearchResultItem, type SessionSummary, type SubagentDescendantSummary,
-  type WorkspaceId, type WorkspaceView,
+  type WorkspaceId, type WorkspaceView, type FolderId, type FolderView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Group key for Sessions outside every Workspace. */
@@ -37,12 +37,16 @@ export type SessionOrderBy = 'manual' | 'updated'
 
 /** One workspace group section: header row facts + visible top-level session rows. */
 export interface GroupNode {
-  /** Group key: the workspace id or {@link UNGROUPED_KEY}. */
+  /** Group key: the workspace id, folder id, or {@link UNGROUPED_KEY}. */
   key: string
-  /** Backing Workspace id; absent only for the ungrouped bucket. */
+  /** Grouping kind: a user folder, a real Workspace, or the ungrouped bucket. */
+  kind: 'folder' | 'workspace' | 'ungrouped'
+  /** Backing Workspace id; present only for real Workspace groups. */
   workspaceId: WorkspaceId | undefined
+  /** Backing Folder id; present only for folder groups. */
+  folderId: FolderId | undefined
   cwd: string | undefined
-  /** Workspace creation time (epoch ms); absent only for the ungrouped bucket. */
+  /** Workspace/folder creation time (epoch ms); absent only for the ungrouped bucket. */
   createdAt: number | undefined
   label: string
   /** Total visible sessions in the group. */
@@ -84,7 +88,9 @@ export interface TreeView {
 
 interface Group {
   key: string
+  kind: 'folder' | 'workspace' | 'ungrouped'
   workspaceId: WorkspaceId | undefined
+  folderId: FolderId | undefined
   cwd: string | undefined
   createdAt: number | undefined
   label: string
@@ -133,7 +139,9 @@ function sessionTitle(session: SessionSummary): string {
 /** Build one group without projecting session lineage into presentation. */
 function buildGroup(
   key: string,
+  kind: 'folder' | 'workspace' | 'ungrouped',
   workspaceId: WorkspaceId | undefined,
+  folderId: FolderId | undefined,
   cwd: string | undefined,
   createdAt: number | undefined,
   label: string,
@@ -141,10 +149,10 @@ function buildGroup(
   order: 'account' | 'recency',
 ): Group {
   const sessions = [...members]
-  // Real Workspace order comes from sessionIds. Ungrouped falls back to
-  // recency until the browser supplies its persisted local order.
+  // Real Workspace/folder order comes from sessionIds. Ungrouped falls back
+  // to recency until the browser supplies its persisted local order.
   if (order === 'recency') sessions.sort(byRecency)
-  return { key, workspaceId, cwd, createdAt, label, sessions }
+  return { key, kind, workspaceId, folderId, cwd, createdAt, label, sessions }
 }
 
 /** Apply a stored Ungrouped order and append newly loose Sessions by recency. */
@@ -166,10 +174,9 @@ function orderedUngrouped(members: readonly SessionSummary[], stored: readonly s
 }
 
 /**
- * Group Sessions by Host Workspace: one group per entity in stable Host
- * order, with members resolved from sessionIds in their stored order. Sessions
- * outside every Workspace trail in the browser-local Ungrouped order, which
- * falls back to recency before that order is initialized.
+ * Group Sessions by Host Workspace, then the ungrouped bucket. Folder grouping
+ * lives in {@link groupByFoldersAndWorkspaces}; this folders-free path backs
+ * {@link deriveGroups} for callers (and tests) that group by Workspace alone.
  */
 function groupByWorkspace(
   list: SessionListState,
@@ -189,7 +196,7 @@ function groupByWorkspace(
       members.push(summary)
     }
     groups.push(buildGroup(
-      workspace.workspaceId, workspace.workspaceId, workspace.path,
+      workspace.workspaceId, 'workspace', workspace.workspaceId, undefined, workspace.path,
       Date.parse(workspace.createdAt), workspace.title, members, 'account',
     ))
   }
@@ -199,16 +206,97 @@ function groupByWorkspace(
       s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived))
   if (stray.length > 0) {
     groups.push(buildGroup(
-      UNGROUPED_KEY,
-      undefined,
-      undefined,
-      undefined,
+      UNGROUPED_KEY, 'ungrouped', undefined, undefined, undefined, undefined,
       UNGROUPED_LABEL,
       ungroupedOrder === undefined ? stray : orderedUngrouped(stray, ungroupedOrder),
       ungroupedOrder === undefined ? 'recency' : 'account',
     ))
   }
   return groups
+}
+
+/**
+ * Group Sessions by Folder first, then by Host Workspace, then the ungrouped
+ * bucket. A session accounts to at most one folder; a session in a folder
+ * appears only under its folder group and is removed from every Workspace
+ * group, so folder membership is a top-level re-grouping that hides the
+ * session's Workspace placement. Folder groups lead in durable registry order,
+ * followed by Workspace groups (also registry order) of the sessions not in
+ * any folder, then the browser-local Ungrouped bucket.
+ */
+export function groupByFoldersAndWorkspaces(
+  list: SessionListState,
+  folders: readonly FolderView[],
+  workspaces: readonly WorkspaceView[],
+  archivedSessionIds: readonly SessionId[],
+  view: TreeView,
+): GroupNode[] {
+  const archived = new Set(archivedSessionIds)
+  const raw: Group[] = []
+  const inFolder = new Set<SessionId>()
+  for (const folder of folders) {
+    const members: SessionSummary[] = []
+    for (const id of folder.sessionIds) {
+      const summary = list.byId[id]
+      if (summary === undefined) continue
+      inFolder.add(id)
+      if (!sessionVisible(summary, list.current, archived)) continue
+      members.push(summary)
+    }
+    raw.push(buildGroup(
+      folder.folderId, 'folder', undefined, folder.folderId, undefined,
+      Date.parse(folder.createdAt), folder.title, members, 'account',
+    ))
+  }
+  const accounted = new Set<SessionId>(inFolder)
+  for (const workspace of workspaces) {
+    const members: SessionSummary[] = []
+    for (const id of workspace.sessionIds) {
+      const summary = list.byId[id]
+      if (summary === undefined) continue // account may lead the list pull; the row appears when the summary lands
+      if (inFolder.has(id)) continue // folder membership hides the workspace row
+      accounted.add(id)
+      if (!sessionVisible(summary, list.current, archived)) continue
+      members.push(summary)
+    }
+    raw.push(buildGroup(
+      workspace.workspaceId, 'workspace', workspace.workspaceId, undefined, workspace.path,
+      Date.parse(workspace.createdAt), workspace.title, members, 'account',
+    ))
+  }
+  const stray = list.ids
+    .map(id => list.byId[id])
+    .filter((s): s is SessionSummary =>
+      s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived))
+  if (stray.length > 0) {
+    raw.push(buildGroup(
+      UNGROUPED_KEY, 'ungrouped', undefined, undefined, undefined, undefined,
+      UNGROUPED_LABEL,
+      view.ungroupedOrder === undefined ? stray : orderedUngrouped(stray, view.ungroupedOrder),
+      view.ungroupedOrder === undefined ? 'recency' : 'account',
+    ))
+  }
+  const expandedGroups = new Set(view.expandedGroups)
+  const descendants = indexSubagentDescendants(list.byId)
+  const current = list.current
+  const currentGroup = current === undefined
+    ? undefined
+    : (folders.find(folder => folder.sessionIds.includes(current))?.folderId as string | undefined)
+      ?? (workspaces.find(w => w.sessionIds.includes(current as SessionId))?.workspaceId as string | undefined)
+        ?? UNGROUPED_KEY
+  return raw.map(g => ({
+    key: g.key,
+    kind: g.kind,
+    workspaceId: g.workspaceId,
+    folderId: g.folderId,
+    cwd: g.cwd,
+    createdAt: g.createdAt,
+    label: g.label,
+    sessionCount: g.sessions.length,
+    expanded: expandedGroups.has(g.key),
+    containsCurrent: g.key === currentGroup,
+    sessions: expandedGroups.has(g.key) ? g.sessions.map(session => sessionNode(session, descendants)) : [],
+  }))
 }
 
 function sessionNode(
@@ -230,11 +318,13 @@ function sessionNode(
 /**
  * Derive the workspace browser groups with every session as a top-level row.
  *
- * Every group shows; sessions populate under expanded groups in the selected
- * local order. Blank sessions are excluded except for the selected
- * provisional New Session row; archived sessions are excluded everywhere.
- * Content search lives outside this derivation
- * (see {@link deriveSearchResults}).
+ * Every session falls under its Workspace group (registry order) or the
+ * trailing ungrouped bucket. Every group shows; sessions populate under
+ * expanded groups in the selected local order. Blank sessions are excluded
+ * except for the selected provisional New Session row; archived sessions are
+ * excluded everywhere. Folder grouping lives in {@link groupByFoldersAndWorkspaces};
+ * this folders-free path backs callers (and tests) that group by Workspace alone.
+ * Content search lives outside this derivation (see {@link deriveSearchResults}).
  * @param list - sessions list snapshot (`current` feeds containsCurrent).
  * @param workspaces - real workspaces in stable Host order.
  * @param archivedSessionIds - registry-global archive set.
@@ -250,16 +340,19 @@ export function deriveGroups(
   const archived = new Set(archivedSessionIds)
   const expandedGroups = new Set(view.expandedGroups)
   const descendants = indexSubagentDescendants(list.byId)
-  const currentGroup = list.current === undefined
+  const current = list.current
+  const currentGroup = current === undefined
     ? undefined
-    : (workspaces.find(w => w.sessionIds.includes(list.current as SessionId))?.workspaceId as string | undefined)
-        ?? UNGROUPED_KEY
+    : (workspaces.find(w => w.sessionIds.includes(current as SessionId))?.workspaceId as string | undefined)
+      ?? UNGROUPED_KEY
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces, archived, view.ungroupedOrder)) {
     const expanded = expandedGroups.has(g.key)
     groups.push({
       key: g.key,
+      kind: g.kind,
       workspaceId: g.workspaceId,
+      folderId: g.folderId,
       cwd: g.cwd,
       createdAt: g.createdAt,
       label: g.label,

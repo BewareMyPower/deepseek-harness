@@ -13,9 +13,10 @@
   display: flex;
   flex-direction: column;
   min-width: min(220px, 100%);
-  /* Never wider than the composer card (the overlay anchor's width): long
-     rows truncate instead of pushing the card past the composer's edge. */
-  max-width: 100%;
+  /* No max-width here: the card is shrink-to-fit (absolute, no width), so it
+     grows to its widest row — full model names/descriptions — instead of
+     truncating at the composer card. The viewport-fit max-width is applied
+     inline (useAnchoredMaxWidth) so the right edge never leaves the screen. */
   /* Height cap: the 320px design maximum, clamped at runtime to the space
    * above the composer (inline max-height set in PopupSelectView.tsx). */
   max-height: 320px;

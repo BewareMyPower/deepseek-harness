@@ -4,6 +4,7 @@
 import type {
   HostFrame, IApiClient, ModelSelection, MuxFrame,
   RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry, WorkspaceId,
+  FolderId,
 } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 
@@ -166,6 +167,29 @@ export class FakeApiClient implements IApiClient {
     }))),
     archiveSession: (payload: unknown) => this.record('workspace.archiveSession', payload, Promise.resolve(ok({
       archivedSessionIds: [(payload as { sessionId: SessionId }).sessionId],
+    }))),
+  }
+
+  readonly folder: IApiClient['folder'] = {
+    list: (payload: unknown) => this.record('folder.list', payload, Promise.resolve(ok({ items: [] }))),
+    create: (payload: unknown) => this.record('folder.create', payload, Promise.resolve(ok({
+      folder: { folderId: 'fk-folder' as never, title: 'folder', sessionIds: [], createdAt: '0', updatedAt: '0' },
+    }))),
+    rename: (payload: unknown) => this.record('folder.rename', payload, Promise.resolve(ok({
+      folder: { folderId: 'fk-folder' as never, title: 'folder', sessionIds: [], createdAt: '0', updatedAt: '0' },
+    }))),
+    delete: (payload: unknown) => this.record('folder.delete', payload, Promise.resolve(ok({ deleted: true as const }))),
+    insertBefore: (payload: unknown) => this.record('folder.insertBefore', payload, Promise.resolve(ok({
+      folderIds: [(payload as { folderId: FolderId }).folderId],
+    }))),
+    addSession: (payload: unknown) => this.record('folder.addSession', payload, Promise.resolve(ok({
+      folder: { folderId: 'fk-folder' as never, title: 'folder', sessionIds: [(payload as { sessionId: SessionId }).sessionId], createdAt: '0', updatedAt: '0' },
+    }))),
+    insertSessionBefore: (payload: unknown) => this.record('folder.insertSessionBefore', payload, Promise.resolve(ok({
+      folder: { folderId: 'fk-folder' as never, title: 'folder', sessionIds: [(payload as { sessionId: SessionId }).sessionId], createdAt: '0', updatedAt: '0' },
+    }))),
+    removeSession: (payload: unknown) => this.record('folder.removeSession', payload, Promise.resolve(ok({
+      folder: { folderId: 'fk-folder' as never, title: 'folder', sessionIds: [], createdAt: '0', updatedAt: '0' },
     }))),
   }
 

@@ -177,6 +177,11 @@ export interface SlotRendererHost {
     /** Workspace list source backing the useWorkspaces standard hook. */
     list: HostObservable<unknown>
   }
+  /** Folder-side standard-kit sources (present only where the folders service mounts). */
+  folders?: {
+    /** Folder list source backing the useFolders standard hook. */
+    list: HostObservable<unknown>
+  } | undefined
   /**
    * Installed locale face backing the `t` standard seat (absent until the
    * locale plugin installs one; rendering an entry that declared `locale:`

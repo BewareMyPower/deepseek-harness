@@ -40,6 +40,16 @@ import {
   workspaceListValueSchema,
   workspaceRenameValueSchema,
 } from '../api/workspace.schema.ts'
+import {
+  folderAddSessionValueSchema,
+  folderCreateValueSchema,
+  folderDeleteValueSchema,
+  folderInsertBeforeValueSchema,
+  folderInsertSessionBeforeValueSchema,
+  folderListValueSchema,
+  folderRemoveSessionValueSchema,
+  folderRenameValueSchema,
+} from '../api/folder.schema.ts'
 import { skillListValueSchema } from '../api/skills.schema.ts'
 import {
   agentPresetCopyValueSchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
@@ -121,6 +131,16 @@ export interface IApiClient {
     insertSessionBefore(payload: RequestPayload<'workspace.insertSessionBefore'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.insertSessionBefore'>>>
     archiveSession(payload: RequestPayload<'workspace.archiveSession'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.archiveSession'>>>
   }
+  folder: {
+    list(payload: RequestPayload<'folder.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'folder.list'>>>
+    create(payload: RequestPayload<'folder.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'folder.create'>>>
+    rename(payload: RequestPayload<'folder.rename'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'folder.rename'>>>
+    delete(payload: RequestPayload<'folder.delete'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'folder.delete'>>>
+    insertBefore(payload: RequestPayload<'folder.insertBefore'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'folder.insertBefore'>>>
+    addSession(payload: RequestPayload<'folder.addSession'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'folder.addSession'>>>
+    insertSessionBefore(payload: RequestPayload<'folder.insertSessionBefore'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'folder.insertSessionBefore'>>>
+    removeSession(payload: RequestPayload<'folder.removeSession'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'folder.removeSession'>>>
+  }
   skills: {
     list(payload: RequestPayload<'skill.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.list'>>>
   }
@@ -198,6 +218,14 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'workspace.insertBefore': workspaceInsertBeforeValueSchema,
   'workspace.insertSessionBefore': workspaceInsertSessionBeforeValueSchema,
   'workspace.archiveSession': workspaceArchiveSessionValueSchema,
+  'folder.list': folderListValueSchema,
+  'folder.create': folderCreateValueSchema,
+  'folder.rename': folderRenameValueSchema,
+  'folder.delete': folderDeleteValueSchema,
+  'folder.insertBefore': folderInsertBeforeValueSchema,
+  'folder.addSession': folderAddSessionValueSchema,
+  'folder.insertSessionBefore': folderInsertSessionBeforeValueSchema,
+  'folder.removeSession': folderRemoveSessionValueSchema,
   'skill.list': skillListValueSchema,
   'agentPreset.list': agentPresetListValueSchema,
   'agentPreset.select': agentPresetSelectValueSchema,
@@ -451,6 +479,17 @@ export abstract class AbstractApiClient implements IApiClient {
     insertBefore: (payload, signal) => this.callUnary('workspace.insertBefore', payload, signal),
     insertSessionBefore: (payload, signal) => this.callUnary('workspace.insertSessionBefore', payload, signal),
     archiveSession: (payload, signal) => this.callUnary('workspace.archiveSession', payload, signal),
+  }
+
+  readonly folder: IApiClient['folder'] = {
+    list: (payload, signal) => this.callUnary('folder.list', payload, signal),
+    create: (payload, signal) => this.callUnary('folder.create', payload, signal),
+    rename: (payload, signal) => this.callUnary('folder.rename', payload, signal),
+    delete: (payload, signal) => this.callUnary('folder.delete', payload, signal),
+    insertBefore: (payload, signal) => this.callUnary('folder.insertBefore', payload, signal),
+    addSession: (payload, signal) => this.callUnary('folder.addSession', payload, signal),
+    insertSessionBefore: (payload, signal) => this.callUnary('folder.insertSessionBefore', payload, signal),
+    removeSession: (payload, signal) => this.callUnary('folder.removeSession', payload, signal),
   }
 
   readonly skills: IApiClient['skills'] = {

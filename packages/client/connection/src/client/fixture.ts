@@ -35,6 +35,7 @@ import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   ModelProviderGroup, ModelSelection, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
+  FolderId, FolderView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { AbstractApiClient, RpcId, SESSION_SEARCH_RESULT_LIMIT } from './api.ts'
@@ -1550,6 +1551,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   // Workspace entities mirroring the host registry: the fixture sessions all
   // live under one workspace, whose account carries them in attach order.
   const wid = (raw: string): WorkspaceId => raw as WorkspaceId
+  const fid = (raw: string): FolderId => raw as FolderId
   const fixtureEpoch = new Date(Date.now() - 300_000).toISOString()
   const workspaces: WorkspaceView[] = options.empty ? [] : [{
     workspaceId: wid('fx-ws-fixture'),
@@ -1563,6 +1565,9 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   // Registry-global archive set mirroring the host: archived sessions keep
   // their workspace accounting slot and only grouping surfaces hide them.
   const archivedSessionIds: SessionId[] = []
+  // Durable session-folder mirror: user topic folders independent of workspace.
+  const folders: FolderView[] = []
+  let nextFolder = 1
 
   // In-memory browse tree behind the fixture's `browse` picker capability —
   // deterministic content mirroring the design mock so assembled Web tests
@@ -2695,6 +2700,151 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return ok(request, { archivedSessionIds: [...archivedSessionIds] })
       },
     },
+    folder: {
+      list: request => ok(request, { items: folders.map(folder => ({ ...folder })) }),
+      create: (request) => {
+        const now = new Date().toISOString()
+        const created: FolderView = {
+          folderId: fid(`fx-folder-${nextFolder++}`),
+          title: request.payload.title,
+          sessionIds: [],
+          createdAt: now,
+          updatedAt: now,
+        }
+        folders.unshift(created)
+        emitHost({ type: 'host/folder-changed', folder: { ...created } })
+        return ok(request, { folder: { ...created } })
+      },
+      rename: (request) => {
+        const folder = folders.find(folder => folder.folderId === request.payload.folderId)
+        if (folder === undefined) {
+          return err(request, {
+            code: 'folder-not-found',
+            message: `no folder ${request.payload.folderId}`,
+            details: { folderId: request.payload.folderId },
+          })
+        }
+        folder.title = request.payload.title
+        folder.updatedAt = new Date().toISOString()
+        emitHost({ type: 'host/folder-changed', folder: { ...folder } })
+        return ok(request, { folder: { ...folder } })
+      },
+      delete: (request) => {
+        const index = folders.findIndex(folder => folder.folderId === request.payload.folderId)
+        if (index === -1) {
+          return err(request, {
+            code: 'folder-not-found',
+            message: `no folder ${request.payload.folderId}`,
+            details: { folderId: request.payload.folderId },
+          })
+        }
+        const [removed] = folders.splice(index, 1)
+        if (removed !== undefined) emitHost({ type: 'host/folder-removed', folderId: removed.folderId })
+        return ok(request, { deleted: true as const })
+      },
+      insertBefore: (request) => {
+        const { folderId, beforeFolderId } = request.payload
+        const source = folders.findIndex(folder => folder.folderId === folderId)
+        if (source === -1) {
+          return err(request, {
+            code: 'folder-not-found',
+            message: `no folder ${folderId}`,
+            details: { folderId },
+          })
+        }
+        const target = beforeFolderId === undefined
+          ? folders.length
+          : folders.findIndex(folder => folder.folderId === beforeFolderId)
+        if (target === -1) {
+          return err(request, {
+            code: 'folder-not-found',
+            message: `no folder ${beforeFolderId}`,
+            details: { folderId: beforeFolderId ?? '' },
+          })
+        }
+        const [moved] = folders.splice(source, 1)
+        if (moved === undefined) return ok(request, { folderIds: folders.map(folder => folder.folderId) })
+        const without = folders.filter(folder => folder.folderId !== folderId)
+        const at = beforeFolderId === undefined ? without.length : without.findIndex(folder => folder.folderId === beforeFolderId)
+        const ordered = [...without.slice(0, at), moved, ...without.slice(at)]
+        folders.length = 0
+        folders.push(...ordered)
+        emitHost({ type: 'host/folder-order-changed', folderIds: folders.map(folder => folder.folderId) })
+        return ok(request, { folderIds: folders.map(folder => folder.folderId) })
+      },
+      addSession: (request) => {
+        const { folderId, sessionId } = request.payload
+        const folder = folders.find(folder => folder.folderId === folderId)
+        if (folder === undefined) {
+          return err(request, {
+            code: 'folder-not-found',
+            message: `no folder ${folderId}`,
+            details: { folderId },
+          })
+        }
+        const owner = folders.find(folder => folder.sessionIds.includes(sessionId))
+        if (owner !== undefined && owner.folderId !== folderId) {
+          return err(request, {
+            code: 'folder-session-conflict',
+            message: `session ${sessionId} is already in folder ${owner.folderId}`,
+            details: { sessionId, folderId: owner.folderId },
+          })
+        }
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        if (!folder.sessionIds.includes(sessionId)) {
+          folder.sessionIds = [sessionId, ...folder.sessionIds]
+          folder.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/folder-changed', folder: { ...folder } })
+        }
+        return ok(request, { folder: { ...folder } })
+      },
+      insertSessionBefore: (request) => {
+        const { folderId, sessionId, beforeSessionId } = request.payload
+        const folder = folders.find(folder => folder.folderId === folderId)
+        if (folder === undefined) {
+          return err(request, {
+            code: 'folder-not-found',
+            message: `no folder ${folderId}`,
+            details: { folderId },
+          })
+        }
+        if (!folder.sessionIds.includes(sessionId)
+          || (beforeSessionId !== undefined && !folder.sessionIds.includes(beforeSessionId))) {
+          return err(request, {
+            code: 'folder-move-invalid',
+            message: `session or anchor is not accounted by folder ${folderId}`,
+            details: { folderId, sessionId, ...beforeSessionId === undefined ? {} : { beforeSessionId } },
+          })
+        }
+        const without = folder.sessionIds.filter(id => id !== sessionId)
+        const at = beforeSessionId === undefined ? without.length : without.indexOf(beforeSessionId)
+        const sessionIds = [...without.slice(0, at), sessionId, ...without.slice(at)]
+        if (!sessionIds.every((id, index) => id === folder.sessionIds[index])) {
+          folder.sessionIds = sessionIds
+          folder.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/folder-changed', folder: { ...folder } })
+        }
+        return ok(request, { folder: { ...folder } })
+      },
+      removeSession: (request) => {
+        const { folderId, sessionId } = request.payload
+        const folder = folders.find(folder => folder.folderId === folderId)
+        if (folder === undefined) {
+          return err(request, {
+            code: 'folder-not-found',
+            message: `no folder ${folderId}`,
+            details: { folderId },
+          })
+        }
+        if (folder.sessionIds.includes(sessionId)) {
+          folder.sessionIds = folder.sessionIds.filter(id => id !== sessionId)
+          folder.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/folder-changed', folder: { ...folder } })
+        }
+        return ok(request, { folder: { ...folder } })
+      },
+    },
     agentPresets: {
       // Both trusts appear, because a surface must present a locally authored
       // preset differently from one the deployment vetted.
@@ -3105,6 +3255,14 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.insertBefore': return this.api.workspace.insertBefore(request)
       case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
       case 'workspace.archiveSession': return this.api.workspace.archiveSession(request)
+      case 'folder.list': return this.api.folder.list(request)
+      case 'folder.create': return this.api.folder.create(request)
+      case 'folder.rename': return this.api.folder.rename(request)
+      case 'folder.delete': return this.api.folder.delete(request)
+      case 'folder.insertBefore': return this.api.folder.insertBefore(request)
+      case 'folder.addSession': return this.api.folder.addSession(request)
+      case 'folder.insertSessionBefore': return this.api.folder.insertSessionBefore(request)
+      case 'folder.removeSession': return this.api.folder.removeSession(request)
       case 'skill.list': return this.api.skills.list(request)
       case 'agentPreset.list': return this.api.agentPresets.list(request)
       case 'agentPreset.select': return this.api.agentPresets.select(request)

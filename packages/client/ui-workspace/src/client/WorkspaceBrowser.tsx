@@ -12,16 +12,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconCloseFill14, IconPersonalizationOutline16,
+  Button, IconCloseFill14, IconFolderClose16,
+  IconPersonalizationOutline16,
   IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
-  SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView,
+  SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView, FolderId, FolderView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { WorkspaceBrowserProps } from './contract/slots.ts'
 import type { SessionNode, SessionOrderBy } from './tree.ts'
-import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
-import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
+import { deriveFlat, deriveSearchResults, groupByFoldersAndWorkspaces, UNGROUPED_KEY } from './tree.ts'
+import { FolderRowItem, ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
 import { FLAT_SESSION_ORDER_KEY } from './stores.ts'
 import { WorkspacePickFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
@@ -37,6 +38,9 @@ const SEARCH_DEBOUNCE_MS = 250
 const SEARCH_QUERY_MAX_CODE_UNITS = 500
 /** Session rows visible per Workspace before the local overflow control. */
 const COLLAPSED_SESSION_LIMIT = 5
+/** Stable empty folder list so a composition without the folder capability does
+ *  not hand a fresh `[]` to memoized derivations and effects every render. */
+const EMPTY_FOLDERS: readonly FolderView[] = []
 
 /** Keep controlled input and RPC payload inside the session.search wire contract. */
 function sanitizeSearchQuery(value: string): string {
@@ -219,11 +223,12 @@ type SessionTreeProps = Pick<
   | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't'
 > & {
   workspaces: readonly WorkspaceView[]
-  /** Explicit persisted zero-or-five-session state by Workspace group. */
+  folders: readonly FolderView[]
+  /** Explicit persisted zero-or-five-session state by Workspace/folder group. */
   groupExpansion: Readonly<Record<string, boolean>>
-  /** Persist one Workspace group's zero-or-five-session state. */
+  /** Persist one Workspace/folder group's zero-or-five-session state. */
   setGroupExpanded: (key: string, expanded: boolean) => void
-  /** Shared editable orders used by Workspace groups and the flat-list account. */
+  /** Shared editable orders used by Workspace/folder groups and the flat-list account. */
   sessionOrderByAccount: Readonly<Record<string, readonly string[]>>
   /** Last update timestamps observed for one-time recent-update promotions. */
   sessionUpdatedAtByAccount: Readonly<Record<string, Readonly<Record<string, number>>>>
@@ -237,10 +242,16 @@ type SessionTreeProps = Pick<
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
   onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
+  /** Open the browser-owned rename dialog for a folder group. */
+  onFolderRename: (folderId: FolderId, currentTitle: string) => void
+  /** Open the browser-owned delete-confirmation dialog for a folder group. */
+  onFolderDelete: (folderId: FolderId, currentTitle: string) => void
   /** Open the browser-owned session rename dialog. */
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
   onSessionArchive: (sessionId: SessionNode['id']) => void
+  /** Open the move-to-folder dialog for a session. */
+  onSessionMoveToFolder: (sessionId: SessionNode['id']) => void
   /** Session order behavior: fixed after edits, or additionally promoted by user activity. */
   orderBy: SessionOrderBy
 }
@@ -248,10 +259,12 @@ type SessionTreeProps = Pick<
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
 function SessionTree({
   useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
-  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
+  onRenameRequest, onDeleteRequest, onFolderRename, onFolderDelete,
+  onSessionRename, onSessionArchive, onSessionMoveToFolder,
   insertWorkspaceBefore, insertSessionBefore, orderBy,
   groupExpansion, setGroupExpanded,
   sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
+  folders,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
@@ -266,8 +279,9 @@ function SessionTree({
   useNativeDragAcceptance(nativeDragActive)
   const currentGroup = current === undefined
     ? undefined
-    : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
-      ?? UNGROUPED_KEY
+    : (folders.find(folder => folder.sessionIds.includes(current))?.folderId as string | undefined)
+      ?? (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
+        ?? UNGROUPED_KEY
   useEffect(() => {
     if (current === undefined || currentGroup === undefined || Object.hasOwn(groupExpansion, currentGroup)) return
     setGroupExpanded(currentGroup, true)
@@ -278,13 +292,19 @@ function SessionTree({
   )
   const ungroupedSessionIds = useMemo(() => {
     const accounted = new Set(workspaces.flatMap(workspace => workspace.sessionIds))
-    return list.ids.filter(id => list.byId[id] !== undefined && !accounted.has(id))
-  }, [list, workspaces])
+    const inFolder = new Set(folders.flatMap(folder => folder.sessionIds))
+    return list.ids.filter(id =>
+      list.byId[id] !== undefined && !accounted.has(id) && !inFolder.has(id))
+  }, [list, workspaces, folders])
   useEffect(() => {
     if (list.phase !== 'ready') return
     const switchedToUpdated = previousOrderBy.current !== 'updated' && orderBy === 'updated'
     previousOrderBy.current = orderBy
     const accounts = [
+      ...folders.map(folder => ({
+        key: folder.folderId as string,
+        sessionIds: folder.sessionIds.filter(id => list.byId[id] !== undefined),
+      })),
       ...workspaces.map(workspace => ({
         key: workspace.workspaceId as string,
         sessionIds: workspace.sessionIds.filter(id => list.byId[id] !== undefined),
@@ -306,7 +326,14 @@ function SessionTree({
         syncSessionOrderAccount(key, next.order.map(id => id as string), next.updatedAt)
       }
     }
-  }, [list, orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, ungroupedSessionIds, workspaces])
+  }, [list, orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, ungroupedSessionIds, workspaces, folders])
+  const orderedFolders = useMemo(() => {
+    return folders.map((folder) => {
+      const stored = sessionOrderByAccount[folder.folderId as string]
+      const sessionIds = reconciledSessionOrder(folder.sessionIds, stored)
+      return { ...folder, sessionIds }
+    })
+  }, [sessionOrderByAccount, folders])
   const orderedWorkspaces = useMemo(() => {
     return workspaces.map((workspace) => {
       const stored = sessionOrderByAccount[workspace.workspaceId as string]
@@ -319,13 +346,13 @@ function SessionTree({
     [sessionOrderByAccount, ungroupedSessionIds],
   )
   const groups = useMemo(
-    () => deriveGroups(list, orderedWorkspaces, archivedSessionIds, {
+    () => groupByFoldersAndWorkspaces(list, orderedFolders, orderedWorkspaces, archivedSessionIds, {
       expandedGroups,
       ...(sessionOrderByAccount[UNGROUPED_KEY] === undefined
         ? {}
         : { ungroupedOrder: sessionOrderByAccount[UNGROUPED_KEY] }),
     }),
-    [list, orderedWorkspaces, archivedSessionIds, expandedGroups, sessionOrderByAccount],
+    [list, orderedFolders, orderedWorkspaces, archivedSessionIds, expandedGroups, sessionOrderByAccount],
   )
   const now = Date.now()
   const commitSessionDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
@@ -448,35 +475,60 @@ function SessionTree({
                   dropWorkspace(workspaceGroupHalf(e))
                 }}
             >
-              <ProjectRowItem
-                group={group}
-                t={t}
-                onToggle={() => {
-                  if (group.expanded) {
-                    setExpandedSessionGroups(keys => keys.filter(key => key !== group.key))
-                  }
-                  setGroupExpanded(group.key, !group.expanded)
-                }}
-                onCreate={() => {
-                  if (group.workspaceId !== undefined) {
-                    setGroupExpanded(group.key, true)
-                    startSession(group.workspaceId)
-                  }
-                }}
-                drag={workspaceDragProps}
-                actions={group.workspaceId === undefined
-                  ? undefined
-                  : {
-                    rename: () => {
-                    /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
-                      if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
-                    },
-                    delete: () => {
-                    /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
-                      if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
-                    },
-                  }}
-              />
+              {group.kind === 'folder'
+                ? (
+                  <FolderRowItem
+                    group={group}
+                    t={t}
+                    onToggle={() => {
+                      if (group.expanded) {
+                        setExpandedSessionGroups(keys => keys.filter(key => key !== group.key))
+                      }
+                      setGroupExpanded(group.key, !group.expanded)
+                    }}
+                    actions={{
+                      rename: () => {
+                      /* v8 ignore next -- narrowing guard: the actions object exists only for folder groups. */
+                        if (group.folderId !== undefined) onFolderRename(group.folderId, group.label)
+                      },
+                      delete: () => {
+                      /* v8 ignore next -- narrowing guard: the actions object exists only for folder groups. */
+                        if (group.folderId !== undefined) onFolderDelete(group.folderId, group.label)
+                      },
+                    }}
+                  />
+                )
+                : (
+                  <ProjectRowItem
+                    group={group}
+                    t={t}
+                    onToggle={() => {
+                      if (group.expanded) {
+                        setExpandedSessionGroups(keys => keys.filter(key => key !== group.key))
+                      }
+                      setGroupExpanded(group.key, !group.expanded)
+                    }}
+                    onCreate={() => {
+                      if (group.workspaceId !== undefined) {
+                        setGroupExpanded(group.key, true)
+                        startSession(group.workspaceId)
+                      }
+                    }}
+                    drag={workspaceDragProps}
+                    actions={group.workspaceId === undefined
+                      ? undefined
+                      : {
+                        rename: () => {
+                        /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                          if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
+                        },
+                        delete: () => {
+                        /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                          if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
+                        },
+                      }}
+                  />
+                )}
               {(expandedSessionGroups.includes(group.key)
                 ? group.sessions
                 : group.sessions.slice(0, COLLAPSED_SESSION_LIMIT)
@@ -516,6 +568,7 @@ function SessionTree({
                     onRename={onSessionRename}
                     onFork={forkSession}
                     onArchive={onSessionArchive}
+                    onMoveToFolder={onSessionMoveToFolder}
                     drag={dragProps}
                     t={t}
                   />
@@ -544,7 +597,7 @@ function SessionTree({
 
 /** The flat "In one list" body: every session is one draggable top-level row. */
 function FlatList({
-  useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds,
+  useSessions, open, forkSession, onSessionRename, onSessionArchive, onSessionMoveToFolder, archivedSessionIds,
   orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
 }: Pick<
   SessionTreeProps,
@@ -553,6 +606,7 @@ function FlatList({
   | 'forkSession'
   | 'onSessionRename'
   | 'onSessionArchive'
+  | 'onSessionMoveToFolder'
   | 'archivedSessionIds'
   | 'orderBy'
   | 'sessionOrderByAccount'
@@ -632,6 +686,7 @@ function FlatList({
               onRename={onSessionRename}
               onFork={forkSession}
               onArchive={onSessionArchive}
+              onMoveToFolder={onSessionMoveToFolder}
               flat
               drag={{
                 start: () => {
@@ -743,6 +798,7 @@ export function WorkspaceBrowser({
   expandSidebar,
   useSessions,
   useWorkspaces,
+  useFolders,
   useStore,
   actions,
   startSession,
@@ -755,6 +811,11 @@ export function WorkspaceBrowser({
   archiveSession,
   insertSessionBefore,
   createWorkspace,
+  createFolder,
+  renameFolder,
+  deleteFolder,
+  addSessionToFolder,
+  removeSessionFromFolder,
   searchSessions,
   searchResultLimit,
   useDirectoryFlow,
@@ -764,6 +825,7 @@ export function WorkspaceBrowser({
   const workspaces = useWorkspaces(state => state.items)
   const workspacePhase = useWorkspaces(state => state.phase)
   const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
+  const folders = useFolders?.(state => state.items) ?? EMPTY_FOLDERS
   // Live occupancy of this surface's directory-flow hole (the same source the
   // flow reads): a composition without a picking affordance can add nothing.
   const directoryFlowAvailable = useDirectoryFlow(occupied => occupied)
@@ -777,9 +839,10 @@ export function WorkspaceBrowser({
     actions.retainAccountKeys([
       UNGROUPED_KEY,
       FLAT_SESSION_ORDER_KEY,
+      ...folders.map(folder => folder.folderId as string),
       ...workspaces.map(workspace => workspace.workspaceId as string),
     ])
-  }, [actions.retainAccountKeys, workspacePhase, workspaces])
+  }, [actions.retainAccountKeys, workspacePhase, workspaces, folders])
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
   const [query, setQuery] = useState('')
@@ -891,6 +954,117 @@ export function WorkspaceBrowser({
     }).catch((reason: unknown) => {
       setRenaming(false)
       setRenameError(reason instanceof Error ? reason.message : String(reason))
+    })
+  }
+
+  // Folder create dialog (header action). Creating a folder is a light verb:
+  // name it and it lands at the top of the folder list.
+  const [folderCreateOpen, setFolderCreateOpen] = useState(false)
+  const [folderCreateDraft, setFolderCreateDraft] = useState('')
+  const [folderCreating, setFolderCreating] = useState(false)
+  const [folderCreateError, setFolderCreateError] = useState<string | null>(null)
+  const folderCreateTrimmed = folderCreateDraft.trim()
+  const folderCreateBlocked = folderCreating || folderCreateTrimmed === ''
+  const closeFolderCreate = () => {
+    if (folderCreating) return
+    setFolderCreateOpen(false)
+    setFolderCreateError(null)
+  }
+  const confirmFolderCreate = () => {
+    if (folderCreateBlocked) return
+    setFolderCreating(true)
+    setFolderCreateError(null)
+    createFolder(folderCreateTrimmed).then(() => {
+      setFolderCreating(false)
+      setFolderCreateOpen(false)
+      setFolderCreateDraft('')
+    }).catch((reason: unknown) => {
+      setFolderCreating(false)
+      setFolderCreateError(reason instanceof Error ? reason.message : String(reason))
+    })
+  }
+
+  // Folder rename dialog (mirror of the workspace rename dialog).
+  const [folderRenameTarget, setFolderRenameTarget] = useState<{ folderId: FolderId; currentTitle: string } | null>(null)
+  const [folderRenameDraft, setFolderRenameDraft] = useState('')
+  const [folderRenaming, setFolderRenaming] = useState(false)
+  const [folderRenameError, setFolderRenameError] = useState<string | null>(null)
+  const folderRenameTrimmed = folderRenameDraft.trim()
+  const folderRenameBlocked = folderRenaming || folderRenameTrimmed === ''
+    || folderRenameTarget === null || folderRenameTrimmed === folderRenameTarget.currentTitle
+  const closeFolderRename = () => {
+    if (folderRenaming) return
+    setFolderRenameTarget(null)
+    setFolderRenameError(null)
+  }
+  const confirmFolderRename = () => {
+    if (folderRenameBlocked) return
+    setFolderRenaming(true)
+    setFolderRenameError(null)
+    renameFolder(folderRenameTarget.folderId, folderRenameTrimmed).then(() => {
+      setFolderRenaming(false)
+      setFolderRenameTarget(null)
+    }).catch((reason: unknown) => {
+      setFolderRenaming(false)
+      setFolderRenameError(reason instanceof Error ? reason.message : String(reason))
+    })
+  }
+
+  // Folder delete dialog: not destructive to sessions — they return to their
+  // Workspace grouping — so it is a one-step confirmation, like workspace delete.
+  const [folderDeleteTarget, setFolderDeleteTarget] = useState<{ folderId: FolderId; title: string } | null>(null)
+  const [folderDeleting, setFolderDeleting] = useState(false)
+  const [folderDeleteError, setFolderDeleteError] = useState<string | null>(null)
+  const closeFolderDelete = () => {
+    if (folderDeleting) return
+    setFolderDeleteTarget(null)
+    setFolderDeleteError(null)
+  }
+  const confirmFolderDelete = () => {
+    /* v8 ignore next -- the Modal is absent without a target and its button is disabled while deleting. */
+    if (folderDeleting || folderDeleteTarget === null) return
+    setFolderDeleting(true)
+    setFolderDeleteError(null)
+    deleteFolder(folderDeleteTarget.folderId).then(() => {
+      setFolderDeleting(false)
+      setFolderDeleteTarget(null)
+    }).catch((reason: unknown) => {
+      setFolderDeleting(false)
+      setFolderDeleteError(reason instanceof Error ? reason.message : String(reason))
+    })
+  }
+
+  // Move-to-folder dialog: assign a session to a folder, switch its folder, or
+  // remove it from its current folder. Folders with no backing directory; a
+  // session accounts to at most one folder.
+  const [moveFolderTarget, setMoveFolderTarget] = useState<SessionNode['id'] | null>(null)
+  const [moveFolderBusy, setMoveFolderBusy] = useState(false)
+  const [moveFolderError, setMoveFolderError] = useState<string | null>(null)
+  const currentFolderOf = (sessionId: SessionNode['id']): FolderView | undefined =>
+    folders.find(folder => folder.sessionIds.includes(sessionId))
+  const closeMoveFolder = () => {
+    if (moveFolderBusy) return
+    setMoveFolderTarget(null)
+    setMoveFolderError(null)
+  }
+  const commitMoveFolder = (target: FolderView | undefined) => {
+    if (moveFolderTarget === null) return
+    setMoveFolderBusy(true)
+    setMoveFolderError(null)
+    const promise = target === undefined
+      ? (() => {
+        const current = currentFolderOf(moveFolderTarget)
+        return current === undefined
+          ? Promise.resolve()
+          : removeSessionFromFolder(current.folderId, moveFolderTarget)
+      })()
+      : addSessionToFolder(target.folderId, moveFolderTarget)
+    promise.then(() => {
+      setMoveFolderBusy(false)
+      setMoveFolderTarget(null)
+    }).catch((reason: unknown) => {
+      setMoveFolderBusy(false)
+      setMoveFolderError(reason instanceof Error ? reason.message : String(reason))
     })
   }
 
@@ -1047,6 +1221,23 @@ export function WorkspaceBrowser({
               t={t}
             />
           )}
+          {useFolders !== undefined && (
+            <Tooltip label={t('folder.add')} side="bottom" delayMs={500}>
+              <button
+                type="button"
+                className={css.iconButton}
+                aria-label={t('folder.add')}
+                onClick={() => {
+                  setWsPickerOpen(false)
+                  setFolderCreateDraft('')
+                  setFolderCreateError(null)
+                  setFolderCreateOpen(true)
+                }}
+              >
+                <IconFolderClose16 size={wide ? 16 : 18} />
+              </button>
+            </Tooltip>
+          )}
           {/* Adding is the button's one action, so a composition with no
               picking affordance has nothing to offer here: the region hides the
               button rather than leaving a dead one in the header. */}
@@ -1124,6 +1315,7 @@ export function WorkspaceBrowser({
               <FlatList
                 useSessions={useSessions} open={open} forkSession={forkSession}
                 onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
+                onSessionMoveToFolder={(sessionId) => { setMoveFolderTarget(sessionId) }}
                 archivedSessionIds={archivedSessionIds}
                 orderBy={orderBy}
                 sessionOrderByAccount={sessionOrderByAccount}
@@ -1138,8 +1330,10 @@ export function WorkspaceBrowser({
                 useSessions={useSessions}
                 onSessionRename={onSessionRename}
                 onSessionArchive={onSessionArchive}
+                onSessionMoveToFolder={(sessionId) => { setMoveFolderTarget(sessionId) }}
                 forkSession={forkSession}
                 workspaces={workspaces}
+                folders={folders}
                 groupExpansion={groupExpansion}
                 setGroupExpanded={actions.setGroupExpanded}
                 sessionOrderByAccount={sessionOrderByAccount}
@@ -1161,6 +1355,15 @@ export function WorkspaceBrowser({
                 onDeleteRequest={(workspaceId, title) => {
                   setDeleteTarget({ workspaceId, title })
                   setDeleteError(null)
+                }}
+                onFolderRename={(folderId, currentTitle) => {
+                  setFolderRenameTarget({ folderId, currentTitle })
+                  setFolderRenameDraft(currentTitle)
+                  setFolderRenameError(null)
+                }}
+                onFolderDelete={(folderId, title) => {
+                  setFolderDeleteTarget({ folderId, title })
+                  setFolderDeleteError(null)
                 }}
               />
             ))}
@@ -1256,6 +1459,133 @@ export function WorkspaceBrowser({
       >
         {deleting && <div className={css.deleteStatus} role="status">{t('delete.pending')}</div>}
         {deleteError !== null && <div className={css.renameError} role="alert">{deleteError}</div>}
+      </Modal>
+
+      {/* Folder create dialog (header action). */}
+      <Modal
+        open={folderCreateOpen}
+        onClose={closeFolderCreate}
+        closeLabel={t('close')}
+        title={t('folder.create.title')}
+        footer={(
+          <>
+            <Button variant="outline" disabled={folderCreating} onClick={closeFolderCreate}>{t('cancel')}</Button>
+            <Button variant="primary" disabled={folderCreateBlocked} onClick={confirmFolderCreate}>{t('folder.create')}</Button>
+          </>
+        )}
+      >
+        <input
+          className={css.renameInput}
+          value={folderCreateDraft}
+          aria-label={t('field.folderName')}
+          autoFocus
+          disabled={folderCreating}
+          onChange={(e) => { setFolderCreateDraft(e.target.value); setFolderCreateError(null) }}
+          onCompositionStart={() => { composingRef.current = true }}
+          onCompositionEnd={() => { composingRef.current = false }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !composingRef.current) {
+              e.preventDefault()
+              confirmFolderCreate()
+            }
+          }}
+        />
+        {folderCreateError !== null && <div className={css.renameError} role="alert">{folderCreateError}</div>}
+      </Modal>
+
+      {/* Folder rename dialog. */}
+      <Modal
+        open={folderRenameTarget !== null}
+        onClose={closeFolderRename}
+        closeLabel={t('close')}
+        title={t('rename.folder.title')}
+        footer={(
+          <>
+            <Button variant="outline" disabled={folderRenaming} onClick={closeFolderRename}>{t('cancel')}</Button>
+            <Button variant="primary" disabled={folderRenameBlocked} onClick={confirmFolderRename}>{t('rename')}</Button>
+          </>
+        )}
+      >
+        <input
+          className={css.renameInput}
+          value={folderRenameDraft}
+          aria-label={t('field.folderName')}
+          autoFocus
+          disabled={folderRenaming}
+          onFocus={(e) => { e.target.select() }}
+          onChange={(e) => { setFolderRenameDraft(e.target.value); setFolderRenameError(null) }}
+          onCompositionStart={() => { composingRef.current = true }}
+          onCompositionEnd={() => { composingRef.current = false }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !composingRef.current) {
+              e.preventDefault()
+              confirmFolderRename()
+            }
+          }}
+        />
+        {folderRenameError !== null && <div className={css.renameError} role="alert">{folderRenameError}</div>}
+      </Modal>
+
+      {/* Folder delete dialog: sessions are not touched — they return to their
+          Workspace grouping or the ungrouped bucket. */}
+      <Modal
+        open={folderDeleteTarget !== null}
+        onClose={closeFolderDelete}
+        closeLabel={t('close')}
+        title={t('delete.folder')}
+        {...folderDeleteTarget === null
+          ? {}
+          : { description: t('delete.folderDesc', { name: folderDeleteTarget.title })}}
+        footer={(
+          <>
+            <Button variant="outline" disabled={folderDeleting} onClick={closeFolderDelete}>{t('cancel')}</Button>
+            <Button
+              variant="outline"
+              className={css.deleteAction}
+              disabled={folderDeleting}
+              onClick={confirmFolderDelete}
+            >
+              {t('delete.folder')}
+            </Button>
+          </>
+        )}
+      >
+        {folderDeleting && <div className={css.deleteStatus} role="status">{t('delete.pending')}</div>}
+        {folderDeleteError !== null && <div className={css.renameError} role="alert">{folderDeleteError}</div>}
+      </Modal>
+
+      {/* Move-to-folder dialog: pick a folder (or remove from the current one). */}
+      <Modal
+        open={moveFolderTarget !== null}
+        onClose={closeMoveFolder}
+        closeLabel={t('close')}
+        title={t('folder.move.title')}
+        footer={(
+          <Button variant="primary" disabled={moveFolderBusy} onClick={closeMoveFolder}>{t('close')}</Button>
+        )}
+      >
+        <div className={css.folderPickList}>
+          <button
+            type="button"
+            className={css.folderPickRow}
+            disabled={moveFolderBusy || currentFolderOf(moveFolderTarget ?? '' as SessionNode['id']) === undefined}
+            onClick={() => { commitMoveFolder(undefined) }}
+          >
+            {t('folder.move.remove')}
+          </button>
+          {folders.map(folder => (
+            <button
+              type="button"
+              key={folder.folderId}
+              className={css.folderPickRow}
+              disabled={moveFolderBusy}
+              onClick={() => { commitMoveFolder(folder) }}
+            >
+              {folder.title}
+            </button>
+          ))}
+        </div>
+        {moveFolderError !== null && <div className={css.renameError} role="alert">{moveFolderError}</div>}
       </Modal>
     </div>
   )

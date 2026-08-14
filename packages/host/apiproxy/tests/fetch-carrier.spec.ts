@@ -192,6 +192,47 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: true, value: { archivedSessionIds: [request.payload.sessionId] } } }
       },
     },
+    folder: {
+      async list(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { items: [] } } }
+      },
+      async create(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { folder: { folderId: request.payload.title as never, title: request.payload.title, sessionIds: [], createdAt: 't', updatedAt: 't' } } },
+        }
+      },
+      async rename(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { folder: { folderId: 'f1' as never, title: request.payload.title, sessionIds: [], createdAt: 't', updatedAt: 't' } } },
+        }
+      },
+      async delete(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { deleted: true as const } } }
+      },
+      async insertBefore(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { folderIds: [request.payload.folderId] } } }
+      },
+      async addSession(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { folder: { folderId: 'f1' as never, title: 'f', sessionIds: [request.payload.sessionId], createdAt: 't', updatedAt: 't' } } },
+        }
+      },
+      async insertSessionBefore(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { folder: { folderId: 'f1' as never, title: 'f', sessionIds: [request.payload.sessionId], createdAt: 't', updatedAt: 't' } } },
+        }
+      },
+      async removeSession(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { folder: { folderId: 'f1' as never, title: 'f', sessionIds: [], createdAt: 't', updatedAt: 't' } } },
+        }
+      },
+    },
     agentPresets: {
       list(request: RpcRequest<{}>) {
         return Promise.resolve({

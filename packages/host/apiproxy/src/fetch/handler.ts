@@ -43,6 +43,16 @@ import {
   workspaceListRequestSchema,
   workspaceRenameRequestSchema,
 } from '../api/workspace.schema.ts'
+import {
+  folderAddSessionRequestSchema,
+  folderCreateRequestSchema,
+  folderDeleteRequestSchema,
+  folderInsertBeforeRequestSchema,
+  folderInsertSessionBeforeRequestSchema,
+  folderListRequestSchema,
+  folderRemoveSessionRequestSchema,
+  folderRenameRequestSchema,
+} from '../api/folder.schema.ts'
 import { skillListRequestSchema } from '../api/skills.schema.ts'
 import {
   agentPresetCopyRequestSchema, agentPresetListRequestSchema, agentPresetOpenDocumentRequestSchema,
@@ -116,6 +126,14 @@ const UNARY_ROUTES: UnaryRoutes = {
   'workspace.insertBefore': { schema: workspaceInsertBeforeRequestSchema, invoke: (api, r) => api.workspace.insertBefore(r) },
   'workspace.insertSessionBefore': { schema: workspaceInsertSessionBeforeRequestSchema, invoke: (api, r) => api.workspace.insertSessionBefore(r) },
   'workspace.archiveSession': { schema: workspaceArchiveSessionRequestSchema, invoke: (api, r) => api.workspace.archiveSession(r) },
+  'folder.list': { schema: folderListRequestSchema, invoke: (api, r) => api.folder.list(r) },
+  'folder.create': { schema: folderCreateRequestSchema, invoke: (api, r) => api.folder.create(r) },
+  'folder.rename': { schema: folderRenameRequestSchema, invoke: (api, r) => api.folder.rename(r) },
+  'folder.delete': { schema: folderDeleteRequestSchema, invoke: (api, r) => api.folder.delete(r) },
+  'folder.insertBefore': { schema: folderInsertBeforeRequestSchema, invoke: (api, r) => api.folder.insertBefore(r) },
+  'folder.addSession': { schema: folderAddSessionRequestSchema, invoke: (api, r) => api.folder.addSession(r) },
+  'folder.insertSessionBefore': { schema: folderInsertSessionBeforeRequestSchema, invoke: (api, r) => api.folder.insertSessionBefore(r) },
+  'folder.removeSession': { schema: folderRemoveSessionRequestSchema, invoke: (api, r) => api.folder.removeSession(r) },
   'skill.list': { schema: skillListRequestSchema, invoke: (api, r) => api.skills.list(r) },
   'agentPreset.list': { schema: agentPresetListRequestSchema, invoke: (api, r) => api.agentPresets.list(r) },
   'agentPreset.select': { schema: agentPresetSelectRequestSchema, invoke: (api, r) => api.agentPresets.select(r) },

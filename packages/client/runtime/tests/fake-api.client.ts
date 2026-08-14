@@ -4,7 +4,7 @@
 import type {
   ClientResponse, HostFrame, IApiClient, ModelSelection, MuxFrame,
   RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry,
-  WorkspaceId, WorkspaceView,
+  WorkspaceId, WorkspaceView, FolderId, FolderView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionRemotes } from '../src/client/sessions/remotes.ts'
@@ -15,6 +15,18 @@ function fakeWorkspace(id: string, over: Partial<WorkspaceView> = {}): Workspace
     workspaceId: id as WorkspaceId,
     path: '/f/ws',
     title: 'ws',
+    sessionIds: [],
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...over,
+  }
+}
+
+/** Programmable-default folder row (branded id, ISO-ish times). */
+function fakeFolder(id: string, over: Partial<FolderView> = {}): FolderView {
+  return {
+    folderId: id as FolderId,
+    title: 'folder',
     sessionIds: [],
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -204,8 +216,7 @@ export class FakeApiClient implements IApiClient {
   onWorkspaceArchiveSession: (payload: unknown) => Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>> =
     payload => Promise.resolve(ok({ archivedSessionIds: [(payload as { sessionId: SessionId }).sessionId] }))
 
-  readonly workspace: IApiClient['workspace'] = {
-    list: (payload: unknown) => this.record('workspace.list', payload, this.onWorkspaceList(payload).then(response => (
+  readonly workspace: IApiClient['workspace'] = {    list: (payload: unknown) => this.record('workspace.list', payload, this.onWorkspaceList(payload).then(response => (
       response.result.ok
         ? { ...response, result: { ok: true as const, value: { archivedSessionIds: [] as never[], ...response.result.value } } }
         : response
@@ -219,6 +230,35 @@ export class FakeApiClient implements IApiClient {
       this.record('workspace.insertSessionBefore', payload, this.onWorkspaceInsertSessionBefore(payload)),
     archiveSession: (payload: unknown) =>
       this.record('workspace.archiveSession', payload, this.onWorkspaceArchiveSession(payload)),
+  }
+
+  onFolderList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> =
+    () => Promise.resolve(ok({ items: [] }))
+  onFolderCreate: (payload: unknown) => Promise<RpcResponse<{ folder: FolderView }>> =
+    () => Promise.resolve(ok({ folder: fakeFolder('fk-folder') }))
+  onFolderRename: (payload: unknown) => Promise<RpcResponse<{ folder: FolderView }>> =
+    () => Promise.resolve(ok({ folder: fakeFolder('fk-folder') }))
+  onFolderDelete: (payload: unknown) => Promise<RpcResponse<{ deleted: true }>> =
+    () => Promise.resolve(ok({ deleted: true }))
+  onFolderInsertBefore: (payload: unknown) => Promise<RpcResponse<{ folderIds: FolderId[] }>> =
+    () => Promise.resolve(ok({ folderIds: [] }))
+  onFolderAddSession: (payload: unknown) => Promise<RpcResponse<{ folder: FolderView }>> =
+    payload => Promise.resolve(ok({ folder: fakeFolder('fk-folder', { sessionIds: [(payload as { sessionId: SessionId }).sessionId] }) }))
+  onFolderInsertSessionBefore: (payload: unknown) => Promise<RpcResponse<{ folder: FolderView }>> =
+    () => Promise.resolve(ok({ folder: fakeFolder('fk-folder') }))
+  onFolderRemoveSession: (payload: unknown) => Promise<RpcResponse<{ folder: FolderView }>> =
+    () => Promise.resolve(ok({ folder: fakeFolder('fk-folder') }))
+
+  readonly folder: IApiClient['folder'] = {
+    list: (payload: unknown) => this.record('folder.list', payload, this.onFolderList(payload)),
+    create: (payload: unknown) => this.record('folder.create', payload, this.onFolderCreate(payload)),
+    rename: (payload: unknown) => this.record('folder.rename', payload, this.onFolderRename(payload)),
+    delete: (payload: unknown) => this.record('folder.delete', payload, this.onFolderDelete(payload)),
+    insertBefore: (payload: unknown) => this.record('folder.insertBefore', payload, this.onFolderInsertBefore(payload)),
+    addSession: (payload: unknown) => this.record('folder.addSession', payload, this.onFolderAddSession(payload)),
+    insertSessionBefore: (payload: unknown) =>
+      this.record('folder.insertSessionBefore', payload, this.onFolderInsertSessionBefore(payload)),
+    removeSession: (payload: unknown) => this.record('folder.removeSession', payload, this.onFolderRemoveSession(payload)),
   }
 
   // Payloads stay `unknown` (lint-lane note above); response rows are the real

@@ -125,15 +125,29 @@ describe('PopupSelectView', () => {
   })
 
   it('caps the card height at the design maximum when the composer sits low enough', async () => {
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 800 } as DOMRect)
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ top: 0, left: 40, bottom: 800, width: 300 } as DOMRect)
     await mountOpen()
     expect(screen.getByLabelText('/theme 选项').style.maxHeight).toBe('320px')
   })
 
   it('clamps the card height to the space above the composer minus the safe margin', async () => {
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect)
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ top: 0, left: 40, bottom: 200, width: 300 } as DOMRect)
     await mountOpen()
     expect(screen.getByLabelText('/theme 选项').style.maxHeight).toBe('188px')
+  })
+
+  it('caps the card width at the design maximum when there is room to the right', async () => {
+    // jsdom's innerWidth default is 1024; the wide gap leaves the design cap in force.
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ top: 0, left: 40, bottom: 800, width: 300 } as DOMRect)
+    await mountOpen()
+    expect(screen.getByLabelText('/theme 选项').style.maxWidth).toBe('520px')
+  })
+
+  it('clamps the card width to the viewport space on the right of the anchor minus the safe margin', async () => {
+    // 1024 - 900 - 12 = 112px of viewport room; the design cap yields.
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ top: 0, left: 900, bottom: 800, width: 300 } as DOMRect)
+    await mountOpen()
+    expect(screen.getByLabelText('/theme 选项').style.maxWidth).toBe('112px')
   })
 
   it('Enter selects the highlighted row: onSelect, consume, close, focusComposer', async () => {

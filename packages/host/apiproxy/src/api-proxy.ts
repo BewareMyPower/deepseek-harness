@@ -27,6 +27,12 @@ import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
   WorkspaceMoveInvalidError, WorkspaceOrderInvalidError, WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
+import type { Folder, FolderRecord } from '@deepseek-ai/dsh-session-folder'
+import {
+  FolderId as brandFolderId,
+  FolderMoveInvalidError, FolderSessionConflictError, FolderUnknownError, FolderUnknownSessionError,
+  folderDomainState, folderRecord,
+} from '@deepseek-ai/dsh-session-folder'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import {
   InvalidPresetIdError, PresetExistsError, PresetMountError,
@@ -39,7 +45,7 @@ import type {
   ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, PromptContentPart, QuestionResponsePayload, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, ToolEventView,
-  WorkspaceId, WorkspaceView,
+  WorkspaceId, WorkspaceView, FolderId, FolderView,
 } from './api/index.ts'
 import {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
@@ -1041,6 +1047,14 @@ function workspaceNotFound<T>(request: RpcRequest<unknown>, workspaceId: string)
   })
 }
 
+function folderNotFound<T>(request: RpcRequest<unknown>, folderId: string): RpcResponse<T> {
+  return err(request, {
+    code: 'folder-not-found',
+    message: `folder "${folderId}" not found`,
+    details: { folderId },
+  })
+}
+
 /** Wire projection of one workspace entity (the workspace.* value row). */
 function workspaceView(workspace: Workspace): WorkspaceView {
   return {
@@ -1063,6 +1077,17 @@ function changedWorkspaceView(workspaceId: string, value: unknown): WorkspaceVie
     sessionIds: [...record.sessionIds],
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+  }
+}
+
+/** Wire projection of one durable folder entity. */
+function folderView(folder: Folder): FolderView {
+  return {
+    folderId: folder.id,
+    title: folder.title,
+    sessionIds: [...folder.sessionIds],
+    createdAt: folder.createdAt,
+    updatedAt: folder.updatedAt,
   }
 }
 
@@ -2860,6 +2885,128 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
     },
 
+    folder: {
+      list(request) {
+        return Promise.resolve(ok(request, {
+          items: ctx.folderRegistry.list().map(folderView),
+        }))
+      },
+
+      async create(request) {
+        try {
+          const folder = await ctx.folderRegistry.create(request.payload.title)
+          return ok(request, { folder: folderView(folder) })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'internal',
+            message: `folder.create failed: ${error instanceof Error ? error.message : String(error)}`,
+            details: {},
+          })
+        }
+      },
+
+      async rename(request) {
+        const { payload } = request
+        const folder = ctx.folderRegistry.get(brandFolderId(payload.folderId))
+        if (folder === undefined) return folderNotFound(request, payload.folderId)
+        try {
+          await ctx.folderRegistry.rename(folder.id, payload.title)
+        } catch (error: unknown) {
+          if (error instanceof FolderUnknownError) return folderNotFound(request, payload.folderId)
+          throw error
+        }
+        return ok(request, { folder: folderView(folder) })
+      },
+
+      async delete(request) {
+        const { folderId } = request.payload
+        try {
+          if (!await ctx.folderRegistry.delete(brandFolderId(folderId))) {
+            return folderNotFound(request, folderId)
+          }
+        } catch (error: unknown) {
+          if (error instanceof FolderUnknownError) return folderNotFound(request, folderId)
+          throw error
+        }
+        return ok(request, { deleted: true as const })
+      },
+
+      async insertBefore(request) {
+        const { folderId, beforeFolderId } = request.payload
+        try {
+          const folderIds = await ctx.folderRegistry.insertBefore(
+            brandFolderId(folderId),
+            beforeFolderId === undefined ? undefined : brandFolderId(beforeFolderId),
+          )
+          return ok(request, { folderIds: [...folderIds] })
+        } catch (error: unknown) {
+          if (!(error instanceof FolderUnknownError)) throw error
+          return folderNotFound(request, error.folderId)
+        }
+      },
+
+      async addSession(request) {
+        const { payload } = request
+        const folder = ctx.folderRegistry.get(brandFolderId(payload.folderId))
+        if (folder === undefined) return folderNotFound(request, payload.folderId)
+        try {
+          await folder.addSession(payload.sessionId)
+        } catch (error: unknown) {
+          if (error instanceof FolderUnknownSessionError) {
+            return err(request, {
+              code: 'session-not-found',
+              message: error.message,
+              details: { sessionId: error.sessionId },
+            })
+          }
+          if (error instanceof FolderSessionConflictError) {
+            return err(request, {
+              code: 'folder-session-conflict',
+              message: error.message,
+              details: { sessionId: error.sessionId, folderId: error.folderId },
+            })
+          }
+          if (error instanceof FolderUnknownError) return folderNotFound(request, error.folderId)
+          throw error
+        }
+        return ok(request, { folder: folderView(folder) })
+      },
+
+      async insertSessionBefore(request) {
+        const { payload } = request
+        const folder = ctx.folderRegistry.get(brandFolderId(payload.folderId))
+        if (folder === undefined) return folderNotFound(request, payload.folderId)
+        try {
+          await folder.insertSessionBefore(payload.sessionId, payload.beforeSessionId)
+        } catch (error: unknown) {
+          if (!(error instanceof FolderMoveInvalidError)) throw error
+          return err(request, {
+            code: 'folder-move-invalid',
+            message: error.message,
+            details: {
+              folderId: payload.folderId,
+              sessionId: payload.sessionId,
+              ...payload.beforeSessionId === undefined ? {} : { beforeSessionId: payload.beforeSessionId },
+            },
+          })
+        }
+        return ok(request, { folder: folderView(folder) })
+      },
+
+      async removeSession(request) {
+        const { payload } = request
+        const folder = ctx.folderRegistry.get(brandFolderId(payload.folderId))
+        if (folder === undefined) return folderNotFound(request, payload.folderId)
+        try {
+          await folder.removeSession(payload.sessionId)
+        } catch (error: unknown) {
+          if (!(error instanceof FolderUnknownError)) throw error
+          return folderNotFound(request, error.folderId)
+        }
+        return ok(request, { folder: folderView(folder) })
+      },
+    },
+
     host: {
       describe(request) {
         // TODO: version should read apps/cli's package.json; placeholder for now.
@@ -3479,6 +3626,22 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // stream opens against the current set; workspace.list re-baselines
         // reconnecting clients, so only later changes need frames.
         let archivedSessionIds = ctx.workspaceRegistry.archivedSessionIds
+        const folderRegistry = ctx.get('folderRegistry')
+        const committedFolders = folderRegistry?.list() ?? []
+        const committedFolderIds = new Set(committedFolders.map(folder => String(folder.id)))
+        let committedFolderOrder = committedFolders.map(folder => folder.id)
+        let committedFolderRecords = new Map<string, FolderRecord>(
+          committedFolders.map(folder => {
+            const record = folderRecord.parse({
+              folderId: folder.id,
+              title: folder.title,
+              sessionIds: [...folder.sessionIds],
+              createdAt: folder.createdAt,
+              updatedAt: folder.updatedAt,
+            })
+            return [String(folder.id), record]
+          }),
+        )
         const disposers = [
           ctx.on('session/created', (session: Session) => {
             queue.push(frame({
@@ -3501,6 +3664,47 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: errorChain(error) }))
           }),
           ctx.on('domain/changed', (change) => {
+            if (change.domain === 'session_folder') {
+              if (folderRegistry === undefined || change.table !== '' || change.operation !== 'put') return
+              const state = folderDomainState.parse(change.value)
+              const folderIds = state.folders.map(record => record.folderId)
+              const changedIds = new Set<string>()
+              for (const record of state.folders) {
+                const previous = committedFolderRecords.get(String(record.folderId))
+                const changed = previous === undefined
+                  || previous.title !== record.title
+                  || previous.sessionIds.length !== record.sessionIds.length
+                  || previous.sessionIds.some((id, index) => id !== record.sessionIds[index])
+                if (changed) changedIds.add(String(record.folderId))
+              }
+              for (const folderId of [...committedFolderRecords.keys()]) {
+                if (!folderIds.some(id => String(id) === folderId)) {
+                  queue.push(frame({ type: 'host/folder-removed', folderId: folderId as FolderId }))
+                }
+              }
+              const orderChanged = folderIds.length === committedFolderOrder.length
+                && folderIds.every(folderId => committedFolderIds.has(String(folderId)))
+                && folderIds.some((folderId, index) => folderId !== committedFolderOrder[index])
+              for (const folderId of folderIds) {
+                if (!changedIds.has(String(folderId))) continue
+                const folder = ctx.folderRegistry.get(folderId)
+                if (folder === undefined) {
+                  throw new Error(`committed folder registry references missing folder "${folderId}"`)
+                }
+                committedFolderIds.add(folderId)
+                queue.push(frame({ type: 'host/folder-changed', folder: folderView(folder) }))
+              }
+              committedFolderIds.clear()
+              for (const folderId of folderIds) committedFolderIds.add(String(folderId))
+              committedFolderOrder = [...folderIds]
+              committedFolderRecords = new Map(
+                state.folders.map(record => [String(record.folderId), record]),
+              )
+              if (orderChanged) {
+                queue.push(frame({ type: 'host/folder-order-changed', folderIds: [...folderIds] }))
+              }
+              return
+            }
             if (change.domain !== 'workspace') return
             if (change.table === '') {
               if (change.operation !== 'put') return

@@ -12,7 +12,7 @@
 import { useEffect, useRef } from 'react'
 import { useSyncExternalStore } from 'react'
 import clsx from 'clsx'
-import { IconCheckOutline16, RiskConfirmation, useAnchoredMaxHeight } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCheckOutline16, RiskConfirmation, useAnchoredMaxHeight, useAnchoredMaxWidth } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { filterOptions } from './popup.ts'
 import type { PopupSelectController } from './popup.ts'
@@ -20,6 +20,9 @@ import css from './PopupSelectView.module.css'
 
 /** Design cap on the card height (same MenuDropdown family as the slash menu). */
 const MAX_HEIGHT = 320
+
+/** Design cap on the card width: content-driven, never exceeding the viewport (see useAnchoredMaxWidth). */
+const MAX_WIDTH = 520
 
 /** Injected business face of the popupSelect overlay entry. */
 export interface PopupSelectInjected {
@@ -42,9 +45,12 @@ export function PopupSelectView({ popup, t }: PopupSelectViewProps) {
   )
   const cardRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-  // The card is bottom-anchored above the composer; clamp the design cap to
-  // the space above it, re-measured on every store update.
+  // The card shares the bottom-anchored overlay family: clamp the height cap to
+  // the space above the composer, and let the width grow with its widest row up
+  // to the viewport (long model names/descriptions show in full rather than
+  // truncating to the composer's width).
   const maxHeight = useAnchoredMaxHeight(cardRef, MAX_HEIGHT, state)
+  const maxWidth = useAnchoredMaxWidth(cardRef, MAX_WIDTH, state)
   const active = state.open ? state.active : null
 
   // The search input keeps focus while arrows move a virtual highlight, so
@@ -109,7 +115,7 @@ export function PopupSelectView({ popup, t }: PopupSelectViewProps) {
         <div
           ref={cardRef}
           className={css.card}
-          style={{ maxHeight }}
+          style={{ maxHeight, maxWidth }}
           aria-label={t('overlay.aria', { command: String(state.command) })}
           onKeyDown={onKeyDown}
         >

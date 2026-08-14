@@ -89,6 +89,16 @@ function scriptedApi(overrides: {
       insertSessionBefore: r => ok(r, { workspace: { workspaceId: 'w1' as never, path: '/t', title: 't', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
       archiveSession: r => ok(r, { archivedSessionIds: [r.payload.sessionId] }),
     },
+    folder: {
+      list: r => ok(r, { items: [] }),
+      create: r => ok(r, { folder: { folderId: r.payload.title as never, title: r.payload.title, sessionIds: [], createdAt: '0', updatedAt: '0' } }),
+      rename: r => ok(r, { folder: { folderId: 'f1' as never, title: r.payload.title, sessionIds: [], createdAt: '0', updatedAt: '0' } }),
+      delete: r => ok(r, { deleted: true as const }),
+      insertBefore: r => ok(r, { folderIds: [r.payload.folderId] }),
+      addSession: r => ok(r, { folder: { folderId: 'f1' as never, title: 'f', sessionIds: [r.payload.sessionId], createdAt: '0', updatedAt: '0' } }),
+      insertSessionBefore: r => ok(r, { folder: { folderId: 'f1' as never, title: 'f', sessionIds: [r.payload.sessionId], createdAt: '0', updatedAt: '0' } }),
+      removeSession: r => ok(r, { folder: { folderId: 'f1' as never, title: 'f', sessionIds: [], createdAt: '0', updatedAt: '0' } }),
+    },
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
     agentPresets: {
       list: r => ok(r, { presets: [], authorable: false, hasDocument: false }),

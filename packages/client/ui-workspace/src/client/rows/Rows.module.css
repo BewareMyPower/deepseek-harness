@@ -180,6 +180,18 @@
   line-height: 20px;
 }
 
+/* Secondary line under a group title: the workspace cwd or a folder's
+   directory root with its access level. */
+.subtitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .renameInput {
   min-width: 0;
   font-size: 14px;

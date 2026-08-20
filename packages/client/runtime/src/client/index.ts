@@ -112,7 +112,7 @@ export type {
   ProjectionsBaseline, ProjectionValueStore, SessionProjectionMap, UseProjection,
 } from './sessions/projection-store.ts'
 export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
-export type { FolderId, FolderView } from '@deepseek-ai/dsh-client-connection/client'
+export type { FolderId, FolderPermission, FolderView } from '@deepseek-ai/dsh-client-connection/client'
 
 /** Client-side Cordis context after declaration merging. */
 export type ClientContext = Context

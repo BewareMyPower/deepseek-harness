@@ -14,15 +14,23 @@ import type { FolderId } from './types.ts'
 /** Folder id schema at the durable boundary; branding has no runtime representation. */
 const folderId = z.string().transform(value => value as FolderId)
 
+/** Folder access level granted to its directory root (`read` | `write` | `both`). */
+const folderPermission = z.enum(['read', 'write', 'both'])
+
 /**
- * Durable shape of one folder record. `title` is the user display title;
- * `sessionIds` is the ordered account (array order is display order);
- * timestamps are ISO-8601 strings. Sessions account to at most one folder,
- * enforced by the registry on every mutation, so the array needs no owner.
+ * Durable shape of one folder record. `path` is the canonical directory root
+ * the folder grants access to (its whole subtree, implicitly); `permission` is
+ * the access level (read / write / both) granted there. `title` is the user
+ * display title; `sessionIds` is the ordered account (array order is display
+ * order); timestamps are ISO-8601 strings. A session may belong to several
+ * folders, so the account array needs no owner-uniqueness across folders — only
+ * within one folder's list.
  */
 export const folderRecord = z.object({
   folderId,
   title: z.string(),
+  path: z.string(),
+  permission: folderPermission,
   sessionIds: z.array(z.string().transform(SessionId)),
   createdAt: z.string(),
   updatedAt: z.string(),

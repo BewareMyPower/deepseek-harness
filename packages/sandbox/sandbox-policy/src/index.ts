@@ -1,8 +1,10 @@
 /**
  * The sandbox POLICY home (`ctx.sandboxPolicy`): the single owner of the
  * deployment's sandbox fallbacks plus per-session resolution: the file-effect
- * {@link SandboxMode}, the `workspace-write` root, and the override kit (the
- * `sandbox/mode` event, its fold, and its write path, from `./session-mode.ts`).
+ * {@link SandboxMode}, the `workspace-write` root, the additional writable
+ * roots of the session's folder grants (when the session-folder registry is
+ * mounted), and the override kit (the `sandbox/mode` event, its fold, and its
+ * write path, from `./session-mode.ts`).
  * Before each agent request, the owner also contributes the resolved policy to
  * the cache-safe runtime-context snapshot. The agent loop logs that snapshot as
  * model history, so replay reconstructs the same mode and root the enforcing
@@ -24,6 +26,7 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-agent'
 import { canonicalPath, type SandboxExecutionPolicy, type SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { Session } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-folder'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { effectiveSandboxMode } from './session-mode.ts'
 
@@ -34,6 +37,20 @@ function resolveWorkspaceRoot(path: string): string {
   return resolvePath(canonicalPath(path))
 }
 
+/**
+ * The additional writable roots a session's folder grants contribute under
+ * `workspace-write`: every folder holding the session with `write` or `both`
+ * access. A `read` grant adds nothing — reads are permitted in every mode —
+ * and the list is empty without a mounted folder registry.
+ */
+function folderWritableRoots(ctx: Context, session: Session): string[] {
+  const folderRegistry = ctx.get('folderRegistry')
+  if (folderRegistry === undefined) return []
+  return folderRegistry.foldersOfSession(session.id)
+    .filter(({ permission }) => permission !== 'read')
+    .map(({ path }) => resolveWorkspaceRoot(path))
+}
+
 /** Render the policy without claiming which capabilities are mounted. */
 function renderPolicyContext(policy: SandboxExecutionPolicy): string {
   switch (policy.mode) {
@@ -41,6 +58,9 @@ function renderPolicyContext(policy: SandboxExecutionPolicy): string {
       return 'Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.'
     case 'workspace-write':
       return `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(policy.workspaceRoot)}. Some platform temporary areas may also be writable.`
+        + (policy.additionalWritableRoots === undefined || policy.additionalWritableRoots.length === 0
+          ? ''
+          : ` Additional writable folders: ${JSON.stringify(policy.additionalWritableRoots)}.`)
     case 'danger-full-access':
       return 'Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.'
     /* v8 ignore next 4 -- SandboxMode is a typed same-process closed union; this branch is only the static exhaustiveness guard. */
@@ -128,15 +148,18 @@ export class SandboxPolicyService extends Service {
    * mode outranks the session's last `sandbox/mode` event, which outranks the
    * deployment default. A session cwd is its workspace-write boundary; the
    * configured root is the fallback for agentless calls and sessions without a
-   * cwd.
+   * cwd. Under `workspace-write`, the session's folder grants (`write`/`both`)
+   * become additional writable roots.
    * @param request - optional session and approved mode override.
    * @returns the fully resolved per-call mode and absolute workspace root.
    */
   resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy {
     const { session } = request
+    const additionalWritableRoots = session === undefined ? [] : folderWritableRoots(this.ctx, session)
     return {
       mode: request.mode ?? (session === undefined ? undefined : this.overrideOf(session)) ?? this.defaultMode,
       workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
+      ...additionalWritableRoots.length > 0 ? { additionalWritableRoots } : {},
       ...session === undefined ? {} : { sessionId: session.id },
     }
   }

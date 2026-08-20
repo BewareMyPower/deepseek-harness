@@ -23,9 +23,16 @@ export interface FolderView {
   /** Display title (user-chosen at create). */
   title: string
   /**
+   * Canonical directory root the folder grants access to; the granted range
+   * covers the whole subtree beneath it.
+   */
+  path: string
+  /** Access level granted at `path`: read-only, writable, or both. */
+  permission: FolderPermission
+  /**
    * Sessions accounted under this folder, in manually owned order (add
    * prepends, insertSessionBefore reorders; activity never does). A session
-   * accounts to at most one folder.
+   * may be accounted by several folders (multi-membership).
    */
   sessionIds: SessionId[]
   /** ISO-8601 creation instant. */
@@ -33,6 +40,13 @@ export interface FolderView {
   /** ISO-8601 last-mutation instant. */
   updatedAt: string
 }
+
+/**
+ * Access level a folder grants at its directory root. `write` and `both`
+ * both confer read+write in the sandbox (workspace-write mode permits reads);
+ * the value records the grantor's intent.
+ */
+export type FolderPermission = 'read' | 'write' | 'both'
 
 /** Folder-domain unary methods (the map keys folder.* of RpcMethodMap). */
 export interface FolderApi {
@@ -42,11 +56,12 @@ export interface FolderApi {
   list(request: RpcRequest<{}>): Promise<RpcResponse<{ items: FolderView[] }>>
 
   /**
-   * Creates a folder with the given display title and prepends it to the
-   * durable display order. The title is trimmed and must be non-empty
-   * (schema-enforced); duplicates are allowed.
+   * Creates a folder with the given display title, directory root, and access
+   * level, and prepends it to the durable display order. `title` is trimmed
+   * and must be non-empty; `path` must be absolute; duplicates are allowed.
    */
-  create(request: RpcRequest<{ title: string }>): Promise<RpcResponse<{ folder: FolderView }>>
+  create(request: RpcRequest<{ title: string; path: string; permission: FolderPermission }>):
+  Promise<RpcResponse<{ folder: FolderView }>>
 
   /**
    * Renames a folder. `title` is trimmed and must be non-empty
@@ -75,10 +90,10 @@ export interface FolderApi {
 
   /**
    * Adds one session to a folder, prepending it to the folder's manual order.
-   * The session must be known (live or in session persistence); a session
-   * already accounted by another folder fails with `folder-session-conflict`,
-   * an unknown session with `session-not-found`. An already-accounted session
-   * resolves without writing.
+   * Multi-membership is allowed, so the session may live in other folders;
+   * adding to a folder that already holds it resolves without writing. The
+   * session must be known (live or in session persistence), otherwise it
+   * fails with `session-not-found`.
    */
   addSession(request: RpcRequest<{ folderId: FolderId; sessionId: SessionId }>):
   Promise<RpcResponse<{ folder: FolderView }>>

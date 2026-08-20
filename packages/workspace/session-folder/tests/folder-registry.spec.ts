@@ -10,11 +10,11 @@ import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-
 import FolderRegistry, {
   FolderId,
   FolderMoveInvalidError,
-  FolderSessionConflictError,
   FolderUnknownError,
   FolderUnknownSessionError,
 } from '../src/index.ts'
 import type { FolderDomainState } from '../src/index.ts'
+import type { FolderPermission } from '../src/types.ts'
 
 const header = (id: string): SessionHeader => ({
   version: 0,
@@ -68,10 +68,19 @@ async function harness(options: HarnessOptions = {}) {
   }
 }
 
-function record(id: string, title: string, sessionIds: string[], createdAt = '2026-08-20T00:00:00.000Z') {
+function record(
+  id: string,
+  title: string,
+  sessionIds: string[],
+  path = '/repo',
+  permission: FolderPermission = 'both',
+  createdAt = '2026-08-20T00:00:00.000Z',
+) {
   return {
     folderId: FolderId(id),
     title,
+    path,
+    permission,
     sessionIds: sessionIds.map(SessionId),
     createdAt,
     updatedAt: createdAt,
@@ -93,27 +102,32 @@ afterEach(() => {
 })
 
 describe('FolderRegistry', () => {
-  it('creates a folder, trims its title, and prepends it to the display order', async () => {
+  it('creates a folder with a directory root and access level, trims its title, and prepends it', async () => {
     const h = await harness()
-    const a = await h.registry.create('  Alpha  ')
-    const b = await h.registry.create('Beta')
+    const a = await h.registry.create('  Alpha  ', '/repo/a', 'read')
+    const b = await h.registry.create('Beta', '/repo/b', 'both')
     expect(a.title).toBe('Alpha')
+    expect(a.path).toBe('/repo/a')
+    expect(a.permission).toBe('read')
+    expect(b.path).toBe('/repo/b')
+    expect(b.permission).toBe('both')
     expect(h.registry.list().map(folder => folder.id)).toEqual([b.id, a.id])
     expect(h.registry.get(a.id)?.sessionIds).toEqual([])
     await h.fiber.dispose()
   })
 
-  it('rejects a blank title at create and rename', async () => {
+  it('rejects a blank title, a relative path, and a blank rename', async () => {
     const h = await harness()
-    const folder = await h.registry.create('Alpha')
-    await expect(h.registry.create('   ')).rejects.toThrow('blank title')
+    const folder = await h.registry.create('Alpha', '/repo/a', 'both')
+    await expect(h.registry.create('   ', '/repo/a', 'both')).rejects.toThrow('blank title')
+    await expect(h.registry.create('Alpha', 'relative/path', 'both')).rejects.toThrow('relative path')
     await expect(h.registry.rename(folder.id, '  ')).rejects.toThrow('blank title')
     await h.fiber.dispose()
   })
 
   it('renames a folder, no-ops on the same title, and rejects unknown ids', async () => {
     const h = await harness()
-    const folder = await h.registry.create('Alpha')
+    const folder = await h.registry.create('Alpha', '/repo/a', 'both')
     await h.registry.rename(folder.id, 'Beta')
     expect(h.registry.get(folder.id)?.title).toBe('Beta')
     const stamp = h.registry.get(folder.id)?.updatedAt
@@ -125,7 +139,7 @@ describe('FolderRegistry', () => {
 
   it('deletes a folder, keeps its sessions, and reports unknown deletes', async () => {
     const h = await harness({ sessions: [header('s1'), header('s2')] })
-    const folder = await h.registry.create('Alpha')
+    const folder = await h.registry.create('Alpha', '/repo/a', 'both')
     await folder.addSession(SessionId('s1'))
     await folder.addSession(SessionId('s2'))
     expect(await h.registry.delete(folder.id)).toBe(true)
@@ -137,9 +151,9 @@ describe('FolderRegistry', () => {
 
   it('reorders folders DOM-insertBefore-like with an omitted anchor appending', async () => {
     const h = await harness()
-    const a = await h.registry.create('A')
-    const b = await h.registry.create('B')
-    const c = await h.registry.create('C')
+    const a = await h.registry.create('A', '/repo/a', 'both')
+    const b = await h.registry.create('B', '/repo/b', 'both')
+    const c = await h.registry.create('C', '/repo/c', 'both')
     const order = await h.registry.insertBefore(c.id, a.id)
     expect(order).toEqual([b.id, c.id, a.id])
     expect(h.registry.list().map(folder => folder.id)).toEqual([b.id, c.id, a.id])
@@ -150,23 +164,24 @@ describe('FolderRegistry', () => {
     await h.fiber.dispose()
   })
 
-  it('adds sessions by prepend, validates existence, and enforces one folder per session', async () => {
+  it('adds sessions by prepend, validates existence, and allows multi-membership', async () => {
     const h = await harness({ sessions: [header('s1'), header('s2')] })
-    const a = await h.registry.create('A')
-    const b = await h.registry.create('B')
+    const a = await h.registry.create('A', '/repo/a', 'both')
+    const b = await h.registry.create('B', '/repo/b', 'read')
     await a.addSession(SessionId('s1'))
     await a.addSession(SessionId('s2'))
     expect(a.sessionIds).toEqual([SessionId('s2'), SessionId('s1')])
     await a.addSession(SessionId('s1'))
     expect(a.sessionIds).toEqual([SessionId('s2'), SessionId('s1')])
-    await expect(b.addSession(SessionId('s1'))).rejects.toBeInstanceOf(FolderSessionConflictError)
+    await b.addSession(SessionId('s1'))
+    expect(b.sessionIds).toEqual([SessionId('s1')])
     await expect(a.addSession(SessionId('unknown'))).rejects.toBeInstanceOf(FolderUnknownSessionError)
     await h.fiber.dispose()
   })
 
   it('accepts a live session as known even when persistence does not list it', async () => {
     const h = await harness({ liveSessions: [header('live')] })
-    const folder = await h.registry.create('A')
+    const folder = await h.registry.create('A', '/repo/a', 'both')
     await folder.addSession(SessionId('live'))
     expect(folder.sessionIds).toEqual([SessionId('live')])
     await h.fiber.dispose()
@@ -174,7 +189,7 @@ describe('FolderRegistry', () => {
 
   it('reorders sessions within a folder and rejects unaccounted ids', async () => {
     const h = await harness({ sessions: [header('s1'), header('s2'), header('s3')] })
-    const folder = await h.registry.create('A')
+    const folder = await h.registry.create('A', '/repo/a', 'both')
     await folder.addSession(SessionId('s1'))
     await folder.addSession(SessionId('s2'))
     await folder.addSession(SessionId('s3'))
@@ -188,7 +203,7 @@ describe('FolderRegistry', () => {
 
   it('removes sessions idempotently without touching the log', async () => {
     const h = await harness({ sessions: [header('s1')] })
-    const folder = await h.registry.create('A')
+    const folder = await h.registry.create('A', '/repo/a', 'both')
     await folder.addSession(SessionId('s1'))
     await folder.removeSession(SessionId('s1'))
     expect(folder.sessionIds).toEqual([])
@@ -200,7 +215,7 @@ describe('FolderRegistry', () => {
   it('round-trips folders and membership across a restart on the same medium', async () => {
     const pool = new MemoryMediaPool()
     const first = await harness({ pool, sessions: [header('s1')] })
-    const folder = await first.registry.create('Persistent')
+    const folder = await first.registry.create('Persistent', '/repo/p', 'both')
     await folder.addSession(SessionId('s1'))
     await first.registry.insertBefore(folder.id)
     await first.fiber.dispose()
@@ -212,39 +227,42 @@ describe('FolderRegistry', () => {
     await second.fiber.dispose()
   })
 
-  it('rejects a stored state that repeats a folder id or shares a session', async () => {
+  it('rejects a stored state that repeats a folder id or a within-folder session, and accepts cross-folder sharing', async () => {
     const pool = new MemoryMediaPool()
     seedState(pool, { folders: [record('a', 'A', []), record('a', 'A2', [])] })
     const duplicate = await harness({ pool }).then(() => null, (error: unknown) => error)
     expect(duplicate instanceof Error ? duplicate.message : '').toContain('repeats folder')
     const pool2 = new MemoryMediaPool()
-    seedState(pool2, { folders: [record('a', 'A', ['s1']), record('b', 'B', ['s1'])] })
-    const shared = await harness({ pool: pool2 }).then(() => null, (error: unknown) => error)
-    expect(shared instanceof Error ? shared.message : '').toContain('accounted by both folder')
+    seedState(pool2, { folders: [record('a', 'A', ['s1', 's1'])] })
+    const repeated = await harness({ pool: pool2 }).then(() => null, (error: unknown) => error)
+    expect(repeated instanceof Error ? repeated.message : '').toContain('accounts session')
+    const pool3 = new MemoryMediaPool()
+    seedState(pool3, { folders: [record('a', 'A', ['s1']), record('b', 'B', ['s1'])] })
+    const shared = await harness({ pool: pool3 })
+    expect(shared.registry.list().map(folder => folder.sessionIds)).toEqual([[SessionId('s1')], [SessionId('s1')]])
+    await shared.fiber.dispose()
   })
 
   it('rolls back the entity cache when a create write fails', async () => {
     const pool = new MemoryMediaPool()
     const h = await harness({ pool })
     pool.failNextWrites = 1
-    await expect(h.registry.create('Doomed')).rejects.toThrow('injected write failure')
+    await expect(h.registry.create('Doomed', '/repo/d', 'both')).rejects.toThrow('injected write failure')
     expect(h.registry.list()).toEqual([])
     await h.fiber.dispose()
   })
 
-  it('serializes concurrent assignments so one folder per session holds', async () => {
+  it('serializes concurrent assignments so multi-membership writes do not corrupt state', async () => {
     const h = await harness({ sessions: [header('s1')] })
-    const a = await h.registry.create('A')
-    const b = await h.registry.create('B')
+    const a = await h.registry.create('A', '/repo/a', 'both')
+    const b = await h.registry.create('B', '/repo/b', 'read')
     const outcomes = await Promise.allSettled([
       a.addSession(SessionId('s1')),
       b.addSession(SessionId('s1')),
     ])
-    const accepted = outcomes.filter(result => result.status === 'fulfilled')
-    const rejected = outcomes.filter(result => result.status === 'rejected')
-    expect(accepted).toHaveLength(1)
-    expect(rejected).toHaveLength(1)
-    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(FolderSessionConflictError)
+    expect(outcomes.every(result => result.status === 'fulfilled')).toBe(true)
+    expect(a.sessionIds).toEqual([SessionId('s1')])
+    expect(b.sessionIds).toEqual([SessionId('s1')])
     await h.fiber.dispose()
   })
 })

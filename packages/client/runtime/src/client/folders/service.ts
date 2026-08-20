@@ -2,7 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  IApiClient, RpcError, SessionId, FolderId, FolderView,
+  IApiClient, RpcError, SessionId, FolderId, FolderPermission, FolderView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
@@ -40,10 +40,13 @@ export class FolderRuntime implements IFolders {
   /**
    * Create a folder.
    * @param title - display title; trimmed non-empty, duplicates allowed.
+   * @param path - directory root the folder grants access to; absolute, whole
+   *   subtree included.
+   * @param permission - access level granted at `path`.
    * @returns the created durable folder.
    */
-  async create(title: string): Promise<FolderView> {
-    const result = await this.manager.create(title)
+  async create(title: string, path: string, permission: FolderPermission): Promise<FolderView> {
+    const result = await this.manager.create(title, path, permission)
     if (!result.ok) throw new Error(`folder create failed: ${result.error.code}: ${result.error.message}`)
     return result.value.folder
   }

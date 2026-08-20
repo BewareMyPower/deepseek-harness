@@ -1,0 +1,9 @@
+# The host build graph (`tsc -b tsconfig.host.json`) emits the package's
+# declarations and JS to lib/types (ignored by the root .gitignore). Spurious
+# duplicates can land next to the sources in src/; exclude them so the source
+# tree stays clean. This package keeps only .ts sources in src/ (no hand-written
+# .d.ts or .js), so these patterns match build output only.
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
+src/**/*.d.ts.map

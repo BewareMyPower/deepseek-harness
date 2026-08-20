@@ -1,7 +1,7 @@
 /** Folder list baseline, incremental-frame, and unary-action owner. */
 
 import type {
-  HostFrame, IApiClient, RpcError, RpcRequest, RpcResult, SessionId, FolderId, FolderView,
+  HostFrame, IApiClient, RpcError, RpcRequest, RpcResult, SessionId, FolderId, FolderPermission, FolderView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { Notifier } from '../sessions/notifier.ts'
@@ -77,8 +77,12 @@ export class FolderManager {
   }
 
   /** Create a folder, then publish its returned snapshot without waiting for the changed frame. */
-  async create(title: string): Promise<RpcResult<{ folder: FolderView }>> {
-    const { result } = await this.api.folder.create({ title })
+  async create(
+    title: string,
+    path: string,
+    permission: FolderPermission,
+  ): Promise<RpcResult<{ folder: FolderView }>> {
+    const { result } = await this.api.folder.create({ title, path, permission })
     if (result.ok) this.upsert(result.value.folder)
     return result
   }

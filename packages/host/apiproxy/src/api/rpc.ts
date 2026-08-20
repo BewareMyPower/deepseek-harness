@@ -42,7 +42,6 @@ export interface RpcErrorDetailsMap {
   'workspace-name-conflict': { name: string }
   'workspace-move-invalid': { workspaceId: string; sessionId: SessionId; beforeSessionId?: SessionId }
   'folder-not-found': { folderId: string }
-  'folder-session-conflict': { sessionId: SessionId; folderId: string }
   'folder-move-invalid': { folderId: string; sessionId: SessionId; beforeSessionId?: SessionId }
   'directory-unreadable': { path: string }
   'directory-exists': { path: string }

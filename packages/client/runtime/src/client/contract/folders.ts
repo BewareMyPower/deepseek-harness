@@ -6,7 +6,7 @@
  * Widening this interface is the explicit act of widening what features may
  * do to the folders domain.
  */
-import type { FolderId, FolderView, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { FolderId, FolderPermission, FolderView, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { FolderListState } from '../folders/service.ts'
 import type { ObservableSnapshot } from './store.ts'
 
@@ -17,9 +17,12 @@ export interface IFolders {
   /**
    * Create a folder and prepend it to the durable display order.
    * @param title - Display title; trimmed non-empty, duplicates allowed.
+   * @param path - Directory root the folder grants access to; absolute,
+   *   whole subtree included.
+   * @param permission - Access level granted at `path`.
    * @returns the created durable folder.
    */
-  create(title: string): Promise<FolderView>
+  create(title: string, path: string, permission: FolderPermission): Promise<FolderView>
   /**
    * Rename a folder.
    * @param folderId - target folder.

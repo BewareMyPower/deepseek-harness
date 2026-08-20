@@ -2707,6 +2707,8 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         const created: FolderView = {
           folderId: fid(`fx-folder-${nextFolder++}`),
           title: request.payload.title,
+          path: request.payload.path,
+          permission: request.payload.permission,
           sessionIds: [],
           createdAt: now,
           updatedAt: now,
@@ -2780,14 +2782,6 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
             code: 'folder-not-found',
             message: `no folder ${folderId}`,
             details: { folderId },
-          })
-        }
-        const owner = folders.find(folder => folder.sessionIds.includes(sessionId))
-        if (owner !== undefined && owner.folderId !== folderId) {
-          return err(request, {
-            code: 'folder-session-conflict',
-            message: `session ${sessionId} is already in folder ${owner.folderId}`,
-            details: { sessionId, folderId: owner.folderId },
           })
         }
         const missing = requireSession(request)

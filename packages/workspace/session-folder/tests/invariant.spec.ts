@@ -22,6 +22,8 @@ const state = (folders: Array<{ id: string; title: string }>): FolderDomainState
   folders: folders.map(folder => ({
     folderId: FolderId(folder.id),
     title: folder.title,
+    path: '/repo',
+    permission: 'both' as const,
     sessionIds: [SessionId('s1')],
     createdAt: '2026-08-20T00:00:00.000Z',
     updatedAt: '2026-08-20T00:00:00.000Z',

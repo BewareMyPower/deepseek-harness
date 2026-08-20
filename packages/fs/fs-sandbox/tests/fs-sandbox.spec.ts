@@ -212,6 +212,27 @@ describe('the per-call policy override (escalation)', () => {
     await fs.writeText(await target(path), 'full', undefined, undefined, { mode: 'danger-full-access', workspaceRoot: workspace })
     expect(await readFile(path, 'utf8')).toBe('full')
   })
+
+  it('a granted folder root (additionalWritableRoots) becomes writable though it sits outside the workspace', async () => {
+    await boot('workspace-write')
+    const folder = join(base, 'folder')
+    await mkdir(folder)
+    const path = join(folder, 'granted.txt')
+    const sibling = join(outside, 'denied.txt')
+    await fs.writeText(await target(path), 'granted', undefined, undefined, {
+      mode: 'workspace-write',
+      workspaceRoot: workspace,
+      additionalWritableRoots: [folder],
+    })
+    expect(await readFile(path, 'utf8')).toBe('granted')
+    // A sibling outside the workspace AND the granted folder is still denied.
+    await expect(fs.writeText(await target(sibling), 'x', undefined, undefined, {
+      mode: 'workspace-write',
+      workspaceRoot: workspace,
+      additionalWritableRoots: [folder],
+    })).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    expect(existsSync(sibling)).toBe(false)
+  })
 })
 
 describe('registration and HMR safety', () => {

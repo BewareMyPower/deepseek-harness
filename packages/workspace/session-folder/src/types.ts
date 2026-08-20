@@ -16,11 +16,22 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 export type FolderId = Branded<'FolderId'>
 
 /**
- * One folder: a user-named, user-arranged container of sessions, orthogonal
- * to Workspace membership. A session accounts to at most one folder; folder
- * membership never touches the session log or its Workspace accounting slot,
- * so removing a session from a folder returns it to its Workspace grouping.
- * Consumers only see this interface; the implementation stays private.
+ * Access level a folder grants to its directory root. `read` allows only
+ * reads; `write` and `both` both allow reads and writes (the filesystem
+ * sandbox's `workspace-write` mode already permits reads, so the two confer
+ * identical access — the label is the grantor's intent). The session's own
+ * Workspace cwd is always read+write and is not a folder.
+ */
+export type FolderPermission = 'read' | 'write' | 'both'
+
+/**
+ * One folder: a user-named, durable directory root the session may read and/or
+ * write, plus the sessions grouped under it. A folder is an access scope, not
+ * a Workspace; a session belongs to its Workspace (which sets its primary cwd)
+ * and may belong to any number of folders, each granting its own directory
+ * root and access level. Folder membership never changes a session's own
+ * stored log or its Workspace accounting slot. Consumers only see this
+ * interface; the implementation stays private.
  */
 export interface Folder {
   /** Stable record id (generated uuid). */
@@ -28,6 +39,15 @@ export interface Folder {
 
   /** Display title. User-chosen at create; duplicates are allowed. */
   readonly title: string
+
+  /**
+   * Canonical directory root the folder grants access to. Access covers the
+   * whole subtree beneath it (so `/x` implicitly covers `/x/y`, `/x/z`).
+   */
+  readonly path: string
+
+  /** Access level granted at {@link path}: `read`, `write`, or `both`. */
+  readonly permission: FolderPermission
 
   /** ISO-8601 creation instant, stamped at create and never rewritten. */
   readonly createdAt: string
@@ -39,7 +59,7 @@ export interface Folder {
    * Sessions in manually owned order: a new session is prepended at add,
    * explicit reordering goes through `insertSessionBefore`, and activity never
    * reorders. Every id is a session known live or in session persistence at
-   * the time it was added.
+   * the time it was added. The same session may appear in several folders.
    */
   readonly sessionIds: readonly SessionId[]
 
@@ -51,11 +71,10 @@ export interface Folder {
   setTitle(title: string): Promise<void>
 
   /**
-   * Prepend a session to this folder's account. An already accounted id
-   * resolves without writing. A new id must be known (live or in session
-   * persistence) and must not be accounted by another folder; unknown ids and
-   * cross-folder moves reject without writing. Moving a session between
-   * folders is `removeSession` on the source then `addSession` here.
+   * Record a session in this folder's account. A session already in this
+   * folder resolves without writing; a session in another folder is allowed —
+   * multi-membership is the model, so adding never relocates. New ids must be
+   * known (live or in session persistence); unknown ids reject without writing.
    * @param sessionId - The session to record.
    * @returns resolution after durability.
    */

@@ -199,13 +199,13 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async create(request) {
         return {
           rpcId: request.rpcId,
-          result: { ok: true, value: { folder: { folderId: request.payload.title as never, title: request.payload.title, sessionIds: [], createdAt: 't', updatedAt: 't' } } },
+          result: { ok: true, value: { folder: { folderId: request.payload.title as never, title: request.payload.title, path: request.payload.path, permission: request.payload.permission, sessionIds: [], createdAt: 't', updatedAt: 't' } } },
         }
       },
       async rename(request) {
         return {
           rpcId: request.rpcId,
-          result: { ok: true, value: { folder: { folderId: 'f1' as never, title: request.payload.title, sessionIds: [], createdAt: 't', updatedAt: 't' } } },
+          result: { ok: true, value: { folder: { folderId: 'f1' as never, title: request.payload.title, path: '/t', permission: 'both', sessionIds: [], createdAt: 't', updatedAt: 't' } } },
         }
       },
       async delete(request) {
@@ -217,19 +217,19 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async addSession(request) {
         return {
           rpcId: request.rpcId,
-          result: { ok: true, value: { folder: { folderId: 'f1' as never, title: 'f', sessionIds: [request.payload.sessionId], createdAt: 't', updatedAt: 't' } } },
+          result: { ok: true, value: { folder: { folderId: 'f1' as never, title: 'f', path: '/t', permission: 'both', sessionIds: [request.payload.sessionId], createdAt: 't', updatedAt: 't' } } },
         }
       },
       async insertSessionBefore(request) {
         return {
           rpcId: request.rpcId,
-          result: { ok: true, value: { folder: { folderId: 'f1' as never, title: 'f', sessionIds: [request.payload.sessionId], createdAt: 't', updatedAt: 't' } } },
+          result: { ok: true, value: { folder: { folderId: 'f1' as never, title: 'f', path: '/t', permission: 'both', sessionIds: [request.payload.sessionId], createdAt: 't', updatedAt: 't' } } },
         }
       },
       async removeSession(request) {
         return {
           rpcId: request.rpcId,
-          result: { ok: true, value: { folder: { folderId: 'f1' as never, title: 'f', sessionIds: [], createdAt: 't', updatedAt: 't' } } },
+          result: { ok: true, value: { folder: { folderId: 'f1' as never, title: 'f', path: '/t', permission: 'both', sessionIds: [], createdAt: 't', updatedAt: 't' } } },
         }
       },
     },

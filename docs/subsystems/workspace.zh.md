@@ -149,6 +149,76 @@ abstract capability(): DirectoryPickerCapability
 
 Source: [`packages/host/directory-picker/src/index.ts:131`](../../packages/host/directory-picker/src/index.ts)
 
+<a id="ctxfolderregistry--folderregistry"></a>
+
+### `ctx.folderRegistry` — `FolderRegistry`
+
+Durable session-folder registry. Startup opens the domain, validates the stored state, and rebuilds the entity cache before the service becomes active. The persistence dependency is mandatory so an unavailable peer can never be mistaken for an empty history when validating a session on add.
+
+```ts cordis-catalog
+/**
+ * Create a folder and prepend it to the durable display order.
+ * @param title - Display title; trimmed and required non-empty.
+ * @param path - Canonical directory root the folder grants access to; must be
+ *   absolute. Access covers the whole subtree beneath it.
+ * @param permission - Access level granted at `path`.
+ * @returns the created durable folder.
+ */
+async create(title: string, path: string, permission: FolderPermission = 'both'): Promise<Folder>
+
+/**
+ * Directory roots (path + access level) granted to a session through its
+ * folder memberships. Used to scope the session's filesystem sandbox. A
+ * session may appear in several folders, so the returned list may hold more
+ * than one root.
+ * @param sessionId - The session to resolve folders for.
+ * @returns the accessible roots granted by folder membership.
+ */
+foldersOfSession(sessionId: SessionId): { path: string; permission: FolderPermission }[]
+
+/**
+ * Look up a folder by id.
+ * @param id - Folder id.
+ * @returns the folder, or `undefined` when unknown.
+ */
+get(id: FolderId): Folder | undefined
+
+/**
+ * Synchronous folder projection in durable display order.
+ * @returns a fresh ordered array of folder entities.
+ */
+list(): Folder[]
+
+/**
+ * Rename a folder durably.
+ * @param id - Folder to rename.
+ * @param title - New display title; trimmed and required non-empty.
+ * @returns resolution after durability.
+ */
+async rename(id: FolderId, title: string): Promise<void>
+
+/**
+ * Delete one folder registration. Its sessions are not touched — each one
+ * simply returns to its Workspace grouping or the ungrouped bucket.
+ * @param id - Folder registration to remove.
+ * @returns `true` when a record was deleted, `false` when it was unknown.
+ */
+delete(id: FolderId): Promise<boolean>
+
+/**
+ * Move one folder within the durable display order, DOM-insertBefore-like.
+ * With an anchor it lands before that folder; without one it appends.
+ * @param id - Folder to move.
+ * @param beforeId - Folder anchor; omitted appends.
+ * @returns the complete committed folder order.
+ */
+insertBefore(id: FolderId, beforeId?: FolderId): Promise<readonly FolderId[]>
+```
+
+Types: [SessionId](core.md)
+
+Source: [`packages/workspace/session-folder/src/index.ts:54`](../../packages/workspace/session-folder/src/index.ts)
+
 <a id="ctxworkspaceregistry--workspaceregistry"></a>
 
 ### `ctx.workspaceRegistry` — `WorkspaceRegistry`

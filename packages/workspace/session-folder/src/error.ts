@@ -30,18 +30,6 @@ export class FolderMoveInvalidError extends Error {
   }
 }
 
-/** A session was assigned to a folder while already accounted by another folder. */
-export class FolderSessionConflictError extends Error {
-  /**
-   * @param sessionId - The already-accounted session id.
-   * @param folderId - The folder that currently accounts the session.
-   */
-  constructor(readonly sessionId: SessionId, readonly folderId: FolderId) {
-    super(`cannot assign session '${sessionId}' to a folder: it is already accounted by folder '${folderId}'`)
-    this.name = 'FolderSessionConflictError'
-  }
-}
-
 /** A session assignment named a session neither live nor in session persistence. */
 export class FolderUnknownSessionError extends Error {
   /**

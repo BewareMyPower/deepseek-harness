@@ -43,7 +43,7 @@ const workspaceState = (items: readonly WorkspaceView[], archivedSessionIds: rea
   recentWorkspaceId: items[0]?.workspaceId,
 })
 const folder = (id: string, title = id, sessionIds: string[] = []): FolderView => ({
-  folderId: id as FolderId, title, sessionIds: sessionIds.map(sid),
+  folderId: id as FolderId, title, path: `/folders/${id}`, permission: 'both', sessionIds: sessionIds.map(sid),
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
 function hook<T>(snapshot: T) {

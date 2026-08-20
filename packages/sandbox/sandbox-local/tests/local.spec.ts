@@ -73,6 +73,13 @@ describe('profile dialects', () => {
     ])
   })
 
+  it('bwrap workspace-write: rebinds each granted folder root as its own writable mount', () => {
+    expect(bwrapProfileArgs({ ...WW, additionalWritableRoots: ['/docs', '/w'] })).toEqual([
+      '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent',
+      '--tmpfs', '/tmp', '--bind', '/ws', '/ws', '--bind', '/docs', '/docs', '--bind', '/w', '/w',
+    ])
+  })
+
   it('landlock read-only: readable tree plus a writable /dev/null, nothing else', () => {
     // /dev/null specifically, NOT /dev: a whole-/dev grant would let confined
     // commands write real host paths beneath it (/dev/shm) under read-only.
@@ -81,6 +88,11 @@ describe('profile dialects', () => {
 
   it('landlock workspace-write: adds the host /tmp and the workspace root', () => {
     expect(landlockProfileArgs(WW)).toEqual(['--ro', '/', '--rw', '/dev/null', '--rw', '/tmp', '--rw', '/ws'])
+  })
+
+  it('landlock workspace-write: grants each folder root read-write alongside the workspace', () => {
+    expect(landlockProfileArgs({ ...WW, additionalWritableRoots: ['/docs', '/w'] }))
+      .toEqual(['--ro', '/', '--rw', '/dev/null', '--rw', '/tmp', '--rw', '/ws', '--rw', '/docs', '--rw', '/w'])
   })
 
   it('seatbelt read-only: allow-default with every file write denied except the /dev/null literal', () => {

@@ -27,6 +27,8 @@ function fakeFolder(id: string, over: Partial<FolderView> = {}): FolderView {
   return {
     folderId: id as FolderId,
     title: 'folder',
+    path: '/f/folder',
+    permission: 'both',
     sessionIds: [],
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -217,19 +219,19 @@ export class FakeApiClient implements IApiClient {
     payload => Promise.resolve(ok({ archivedSessionIds: [(payload as { sessionId: SessionId }).sessionId] }))
 
   readonly workspace: IApiClient['workspace'] = {    list: (payload: unknown) => this.record('workspace.list', payload, this.onWorkspaceList(payload).then(response => (
-      response.result.ok
-        ? { ...response, result: { ok: true as const, value: { archivedSessionIds: [] as never[], ...response.result.value } } }
-        : response
-    )) as ReturnType<IApiClient['workspace']['list']>),
-    create: (payload: unknown) => this.record('workspace.create', payload, this.onWorkspaceCreate(payload)),
-    rename: (payload: unknown) => this.record('workspace.rename', payload, this.onWorkspaceRename(payload)),
-    delete: (payload: unknown) => this.record('workspace.delete', payload, this.onWorkspaceDelete(payload)),
-    insertBefore: (payload: unknown) =>
-      this.record('workspace.insertBefore', payload, this.onWorkspaceInsertBefore(payload)),
-    insertSessionBefore: (payload: unknown) =>
-      this.record('workspace.insertSessionBefore', payload, this.onWorkspaceInsertSessionBefore(payload)),
-    archiveSession: (payload: unknown) =>
-      this.record('workspace.archiveSession', payload, this.onWorkspaceArchiveSession(payload)),
+    response.result.ok
+      ? { ...response, result: { ok: true as const, value: { archivedSessionIds: [] as never[], ...response.result.value } } }
+      : response
+  )) as ReturnType<IApiClient['workspace']['list']>),
+  create: (payload: unknown) => this.record('workspace.create', payload, this.onWorkspaceCreate(payload)),
+  rename: (payload: unknown) => this.record('workspace.rename', payload, this.onWorkspaceRename(payload)),
+  delete: (payload: unknown) => this.record('workspace.delete', payload, this.onWorkspaceDelete(payload)),
+  insertBefore: (payload: unknown) =>
+    this.record('workspace.insertBefore', payload, this.onWorkspaceInsertBefore(payload)),
+  insertSessionBefore: (payload: unknown) =>
+    this.record('workspace.insertSessionBefore', payload, this.onWorkspaceInsertSessionBefore(payload)),
+  archiveSession: (payload: unknown) =>
+    this.record('workspace.archiveSession', payload, this.onWorkspaceArchiveSession(payload)),
   }
 
   onFolderList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> =

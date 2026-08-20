@@ -10,7 +10,7 @@
 
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import {
-  FolderMoveInvalidError, FolderSessionConflictError, FolderUnknownError, FolderUnknownSessionError,
+  FolderMoveInvalidError, FolderUnknownError, FolderUnknownSessionError,
 } from './error.ts'
 import type { FolderDomainState, FolderRecord } from './spec.ts'
 import type { Folder, FolderId } from './types.ts'
@@ -23,8 +23,8 @@ import type { Folder, FolderId } from './types.ts'
 export interface FolderEntityHost {
   /**
    * Run one serialized state mutation and return the folder's updated record.
-   * `fn` sees the state current at its chain slot, so membership and
-   * one-folder-per-session decisions are race-free against queued writes.
+   * `fn` sees the state current at its chain slot, so membership decisions are
+   * race-free against queued writes.
    * @param id - The mutating folder's id.
    * @param fn - Pure transform from current to next state; may throw a
    * business error to abort without writing.
@@ -67,6 +67,14 @@ export class FolderEntity implements Folder {
     return this.record.title
   }
 
+  get path(): string {
+    return this.record.path
+  }
+
+  get permission(): Folder['permission'] {
+    return this.record.permission
+  }
+
   get createdAt(): string {
     return this.record.createdAt
   }
@@ -99,27 +107,21 @@ export class FolderEntity implements Folder {
   }
 
   async addSession(sessionId: SessionId): Promise<void> {
-    // Fast path: the settled snapshot already accounts the id — membership
-    // itself is decided on the write chain inside `mutate`, never here.
+    // Fast path: the settled snapshot already accounts the id in this folder —
+    // membership itself is decided on the write chain inside `mutate`, never
+    // here.
     if (this.record.sessionIds.includes(sessionId)) return
-    // The session-known probe is I/O and runs before the chain slot; the
-    // one-folder-per-session check still re-runs on the chain so a concurrent
-    // assignment cannot interleave between this probe and the write.
+    // Multi-membership is the model, so a session in another folder is allowed;
+    // the only gate is that the session exists somewhere the host can see.
     if (!(await this.host.sessionKnown(sessionId))) {
       throw new FolderUnknownSessionError(sessionId)
     }
-    this.record = await this.host.mutate(this.id, (state) => {
-      const owner = state.folders.find(record => record.sessionIds.includes(sessionId))
-      if (owner !== undefined && owner.folderId !== this.id) {
-        throw new FolderSessionConflictError(sessionId, owner.folderId)
-      }
-      return {
-        ...state,
-        folders: state.folders.map(record => record.folderId === this.id
-          ? { ...record, sessionIds: [sessionId, ...record.sessionIds], updatedAt: stamp() }
-          : record),
-      }
-    })
+    this.record = await this.host.mutate(this.id, state => ({
+      ...state,
+      folders: state.folders.map(record => record.folderId === this.id
+        ? { ...record, sessionIds: [sessionId, ...record.sessionIds], updatedAt: stamp() }
+        : record),
+    }))
   }
 
   async insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void> {

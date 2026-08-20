@@ -15,10 +15,15 @@ import { sessionIdSchema } from './sessions.schema.ts'
  */
 export const folderIdSchema = z.string().min(1).transform(value => value as FolderView['folderId'])
 
+/** FolderPermission wire schema: one of read, write, both. */
+export const folderPermissionSchema = z.enum(['read', 'write', 'both'])
+
 /** FolderView row of every folder.* response. */
 export const folderViewSchema = z.object({
   folderId: folderIdSchema,
   title: z.string(),
+  path: z.string(),
+  permission: folderPermissionSchema,
   sessionIds: z.array(sessionIdSchema),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -32,12 +37,17 @@ export const folderListValueSchema = z.object({
   items: z.array(folderViewSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'folder.list'>>>
 
-/** folder.create request payload: the new display title. */
+/** folder.create request payload: the new display title, directory root, and access level. */
 export const folderCreateRequestSchema = z.object({
   title: z.string(),
+  path: z.string(),
+  permission: folderPermissionSchema,
 }).refine(
   payload => payload.title.trim() !== '',
   { message: 'folder.create requires a non-blank title' },
+).refine(
+  payload => payload.path.startsWith('/'),
+  { message: 'folder.create requires an absolute path' },
 ) satisfies z.ZodType<Wire<RequestPayload<'folder.create'>>>
 
 /** folder.create response value. */

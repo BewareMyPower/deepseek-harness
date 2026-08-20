@@ -474,6 +474,29 @@
   color: var(--dsw-alias-label-dimmed);
 }
 
+/* Folder create dialog permission row (path input sits on the rename-input
+   style; the label+select pair wraps to its own line under it). */
+.folderPermissionLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.folderPermissionSelect {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+}
+
 .renameError {
   margin-top: 8px;
   font-size: 12px;

@@ -569,6 +569,55 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'folderRegistry',
+    summary: 'Durable session-folder registry.',
+    description: 'Durable session-folder registry. Startup opens the domain, validates the stored state, and rebuilds the entity cache before the service becomes active. The persistence dependency is mandatory so an unavailable peer can never be mistaken for an empty history when validating a session on add.',
+    methods: [
+      {
+        signature: 'async create(title: string, path: string, permission: FolderPermission = \'both\'): Promise<Folder>',
+        description: 'Create a folder and prepend it to the durable display order.',
+        parameters: [{ name: 'title', description: 'Display title; trimmed and required non-empty.' }, { name: 'path', description: 'Canonical directory root the folder grants access to; must be absolute. Access covers the whole subtree beneath it.' }, { name: 'permission', description: 'Access level granted at `path`.' }],
+        returns: 'the created durable folder.',
+      },
+      {
+        signature: 'foldersOfSession(sessionId: SessionId): { path: string; permission: FolderPermission }[]',
+        description: 'Directory roots (path + access level) granted to a session through its folder memberships. Used to scope the session\'s filesystem sandbox. A session may appear in several folders, so the returned list may hold more than one root.',
+        parameters: [{ name: 'sessionId', description: 'The session to resolve folders for.' }],
+        returns: 'the accessible roots granted by folder membership.',
+      },
+      {
+        signature: 'get(id: FolderId): Folder | undefined',
+        description: 'Look up a folder by id.',
+        parameters: [{ name: 'id', description: 'Folder id.' }],
+        returns: 'the folder, or `undefined` when unknown.',
+      },
+      {
+        signature: 'list(): Folder[]',
+        description: 'Synchronous folder projection in durable display order.',
+        parameters: [],
+        returns: 'a fresh ordered array of folder entities.',
+      },
+      {
+        signature: 'async rename(id: FolderId, title: string): Promise<void>',
+        description: 'Rename a folder durably.',
+        parameters: [{ name: 'id', description: 'Folder to rename.' }, { name: 'title', description: 'New display title; trimmed and required non-empty.' }],
+        returns: 'resolution after durability.',
+      },
+      {
+        signature: 'delete(id: FolderId): Promise<boolean>',
+        description: 'Delete one folder registration. Its sessions are not touched — each one simply returns to its Workspace grouping or the ungrouped bucket.',
+        parameters: [{ name: 'id', description: 'Folder registration to remove.' }],
+        returns: '`true` when a record was deleted, `false` when it was unknown.',
+      },
+      {
+        signature: 'insertBefore(id: FolderId, beforeId?: FolderId): Promise<readonly FolderId[]>',
+        description: 'Move one folder within the durable display order, DOM-insertBefore-like. With an anchor it lands before that folder; without one it appends.',
+        parameters: [{ name: 'id', description: 'Folder to move.' }, { name: 'beforeId', description: 'Folder anchor; omitted appends.' }],
+        returns: 'the complete committed folder order.',
+      },
+    ],
+  },
+  {
     key: 'fs',
     summary: 'Abstract filesystem provider.',
     description: 'Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.',
@@ -999,7 +1048,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy',
-        description: 'Resolve the complete policy for one capability call. An approved explicit mode outranks the session\'s last `sandbox/mode` event, which outranks the deployment default. A session cwd is its workspace-write boundary; the configured root is the fallback for agentless calls and sessions without a cwd.',
+        description: 'Resolve the complete policy for one capability call. An approved explicit mode outranks the session\'s last `sandbox/mode` event, which outranks the deployment default. A session cwd is its workspace-write boundary; the configured root is the fallback for agentless calls and sessions without a cwd. Under `workspace-write`, the session\'s folder grants (`write`/`both`) become additional writable roots.',
         parameters: [{ name: 'request', description: 'optional session and approved mode override.' }],
         returns: 'the fully resolved per-call mode and absolute workspace root.',
       },
@@ -3052,6 +3101,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface FinishReasonMap {\n    \'stop\': {\n        kind: \'stop\';\n    };\n    \'tool-calls\': {\n        kind: \'tool-calls\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    \'aborted\': {\n        kind: \'aborted\';\n        failure: LlmFailure;\n    };\n    \'error\': {\n        kind: \'error\';\n        failure: LlmFailure;\n    };\n}',
   },
   {
+    name: 'Folder',
+    declaration: 'export interface Folder {\n    readonly id: FolderId;\n    readonly title: string;\n    readonly path: string;\n    readonly permission: FolderPermission;\n    readonly createdAt: string;\n    readonly updatedAt: string;\n    readonly sessionIds: readonly SessionId[];\n    setTitle(title: string): Promise<void>;\n    addSession(sessionId: SessionId): Promise<void>;\n    insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void>;\n    removeSession(sessionId: SessionId): Promise<void>;\n}',
+  },
+  {
     name: 'FsDirEntry',
     declaration: 'export interface FsDirEntry {\n    name: string;\n    type: \'file\' | \'directory\' | \'other\';\n    target: FsTarget;\n    version?: FsVersion;\n    size?: number;\n}',
   },
@@ -3645,7 +3698,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RpcErrorDetailsMap',
-    declaration: 'export interface RpcErrorDetailsMap {\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'directory-unreadable\': {\n        path: string;\n    };\n    \'directory-exists\': {\n        path: string;\n    };\n    \'directory-create-failed\': {\n        path: string;\n    };\n    \'directory-picker-unavailable\': {\n        capability: string;\n    };\n    \'agent-preset-read-only\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-preset-locked\': {\n        sessionId: SessionId;\n        agentPreset: string;\n    };\n    \'agent-preset-conflict\': {\n        sessionId: SessionId;\n        requestedPreset: string;\n        existingPreset?: string;\n    };\n    \'agent-preset-not-found\': {\n        agentPreset: string;\n      /* …truncated — full shape in source */',
+    declaration: 'export interface RpcErrorDetailsMap {\n    \'bad-request\': {\n        issues: ZodIssue[];\n    };\n    \'cancelled\': {};\n    \'session-not-found\': {\n        sessionId: SessionId;\n    };\n    \'model-unavailable\': {\n        provider: string;\n        model: string;\n    };\n    \'session-conflict\': {\n        sessionId: SessionId;\n        requestedCwd: string;\n        existingCwd?: string;\n    };\n    \'invalid-time-zone\': {\n        value: string;\n    };\n    \'workspace-attach-failed\': {\n        sessionId: SessionId;\n        workspaceId: string;\n    };\n    \'workspace-not-found\': {\n        workspaceId: string;\n    };\n    \'workspace-invalid-path\': {\n        path: string;\n    };\n    \'workspace-name-conflict\': {\n        name: string;\n    };\n    \'workspace-move-invalid\': {\n        workspaceId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'folder-not-found\': {\n        folderId: string;\n    };\n    \'folder-move-invalid\': {\n        folderId: string;\n        sessionId: SessionId;\n        beforeSessionId?: SessionId;\n    };\n    \'directory-unreadable\': {\n        path: string;\n    };\n    \'directory-exists\': {\n        path: string;\n    };\n    \'directory-create-failed\': {\n        path: string;\n    };\n    \'directory-picker-unavailable\': {\n        capability: string;\n    };\n    \'agent-preset-read-only\': {\n        agentPreset: string;\n        reason: string;\n    };\n    \'agent-preset-locked\': {\n        sessionId: SessionId;\n        agentPreset: string;\n    };\n    \'agent-p /* …truncated — full shape in source */',
   },
   {
     name: 'RpcId',
@@ -3669,7 +3722,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SandboxExecutionPolicy',
-    declaration: 'export interface SandboxExecutionPolicy {\n    mode: SandboxMode;\n    workspaceRoot: string;\n    sessionId?: SessionId;\n}',
+    declaration: 'export interface SandboxExecutionPolicy {\n    mode: SandboxMode;\n    workspaceRoot: string;\n    additionalWritableRoots?: string[];\n    sessionId?: SessionId;\n}',
   },
   {
     name: 'SandboxMode',

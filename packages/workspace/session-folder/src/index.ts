@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { isAbsolute, resolve } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -17,11 +18,11 @@ import type { FolderEntityHost } from './entity.ts'
 import { FolderUnknownError } from './error.ts'
 import { folderDomainSpec } from './spec.ts'
 import type { FolderDomainState, FolderRecord } from './spec.ts'
-import type { Folder, FolderId as FolderIdBrand } from './types.ts'
+import type { Folder, FolderId as FolderIdBrand, FolderPermission } from './types.ts'
 
 export type { Folder } from './types.ts'
 export {
-  FolderMoveInvalidError, FolderSessionConflictError, FolderUnknownError, FolderUnknownSessionError,
+  FolderMoveInvalidError, FolderUnknownError, FolderUnknownSessionError,
 } from './error.ts'
 export { folderDomainSpec, folderDomainState, folderRecord } from './spec.ts'
 export type { FolderDomainState, FolderRecord } from './spec.ts'
@@ -81,13 +82,20 @@ export class FolderRegistry extends Service {
   /**
    * Create a folder and prepend it to the durable display order.
    * @param title - Display title; trimmed and required non-empty.
+   * @param path - Canonical directory root the folder grants access to; must be
+   *   absolute. Access covers the whole subtree beneath it.
+   * @param permission - Access level granted at `path`.
    * @returns the created durable folder.
    */
-  async create(title: string): Promise<Folder> {
+  async create(title: string, path: string, permission: FolderPermission = 'both'): Promise<Folder> {
     const trimmed = title.trim()
     if (trimmed === '') {
       throw new Error('cannot create a session folder with a blank title')
     }
+    if (!isAbsolute(path)) {
+      throw new Error(`cannot create a session folder at a relative path: '${path}'`)
+    }
+    const root = resolve(path)
     return await this.enqueueOperation(async () => {
       const state = this.requireState()
       const id = FolderId(randomUUID())
@@ -95,6 +103,8 @@ export class FolderRegistry extends Service {
       const record: FolderRecord = {
         folderId: id,
         title: trimmed,
+        path: root,
+        permission,
         sessionIds: [],
         createdAt: now,
         updatedAt: now,
@@ -111,6 +121,21 @@ export class FolderRegistry extends Service {
       }
       return entity
     })
+  }
+
+  /**
+   * Directory roots (path + access level) granted to a session through its
+   * folder memberships. Used to scope the session's filesystem sandbox. A
+   * session may appear in several folders, so the returned list may hold more
+   * than one root.
+   * @param sessionId - The session to resolve folders for.
+   * @returns the accessible roots granted by folder membership.
+   */
+  foldersOfSession(sessionId: SessionId): { path: string; permission: FolderPermission }[] {
+    const state = this.requireState()
+    return state.folders
+      .filter(record => record.sessionIds.includes(sessionId))
+      .map(record => ({ path: record.path, permission: record.permission }))
   }
 
   /**
@@ -210,7 +235,7 @@ export class FolderRegistry extends Service {
       if (ordered.every((folderId, index) => folderId === ids[index])) return ids
       const byId = new Map(state.folders.map(record => [record.folderId, record]))
       const next: FolderDomainState = {
-        folders: ordered.flatMap(folderId => {
+        folders: ordered.flatMap((folderId) => {
           const record = byId.get(folderId)
           return record === undefined ? [] : [record]
         }),
@@ -222,27 +247,27 @@ export class FolderRegistry extends Service {
   }
 
   /**
-   * Validate the complete stored state: unique folder ids and each session
-   * accounted by at most one folder. Violations fail loud — they can only
-   * come from a write path that bypassed this registry.
+   * Validate the complete stored state: unique folder ids and no session
+   * duplicated within a single folder's account. Multi-membership is allowed,
+   * so a session may appear in several folders — only intra-folder repeats are
+   * rejected. Violations fail loud; they can only come from a write path that
+   * bypassed this registry.
    */
   private validateState(state: FolderDomainState): void {
     const ids = new Set<FolderId>()
-    const accounted = new Map<SessionId, FolderId>()
     for (const record of state.folders) {
       if (ids.has(record.folderId)) {
         throw new Error(`session-folder domain is inconsistent: folder order repeats folder '${record.folderId}'`)
       }
       ids.add(record.folderId)
+      const inFolder = new Set<SessionId>()
       for (const sessionId of record.sessionIds) {
-        const owner = accounted.get(sessionId)
-        if (owner !== undefined) {
+        if (inFolder.has(sessionId)) {
           throw new Error(
-            `session-folder domain is inconsistent: session '${sessionId}' is accounted `
-            + `by both folder '${owner}' and folder '${record.folderId}'`,
+            `session-folder domain is inconsistent: folder '${record.folderId}' accounts session '${sessionId}' twice`,
           )
         }
-        accounted.set(sessionId, record.folderId)
+        inFolder.add(sessionId)
       }
     }
   }
@@ -283,11 +308,11 @@ export class FolderRegistry extends Service {
   private async sessionKnown(id: SessionId): Promise<boolean> {
     if (this.ctx.get('sessions')?.get(id) !== undefined) return true
     if (this.sessionHeaders.has(id)) return true
-    await this.indexHeaders(await this.ctx.sessionPersistence.list())
+    this.indexHeaders(await this.ctx.sessionPersistence.list())
     return this.sessionHeaders.has(id)
   }
 
-  private async indexHeaders(headers: readonly SessionHeader[]): Promise<void> {
+  private indexHeaders(headers: readonly SessionHeader[]): void {
     for (const header of headers) this.sessionHeaders.set(header.id, header)
   }
 

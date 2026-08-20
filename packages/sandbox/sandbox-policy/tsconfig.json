@@ -27,6 +27,18 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../storage/storage-domain"
+    },
+    {
+      "path": "../../session/session-persistence"
+    },
+    {
+      "path": "../../workspace/session-folder"
+    },
+    {
       "path": "../../core/system-prompt"
     },
     {

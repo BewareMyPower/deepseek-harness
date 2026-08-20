@@ -36,4 +36,27 @@ describe('writableRoots', () => {
     // Deduplicated after canonicalization (/tmp and os.tmpdir() may coincide).
     expect(new Set(roots).size).toBe(roots.length)
   })
+
+  it('workspace-write also grants the additional writable roots (folder grants)', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'dsh-ws-'))
+    const docs = mkdtempSync(join(tmpdir(), 'dsh-docs-'))
+    const roots = writableRoots({
+      mode: 'workspace-write',
+      workspaceRoot: ws,
+      additionalWritableRoots: [docs, '/does/not/exist/anywhere-xyz'],
+    })
+    expect(roots).toContain(realpathSync.native(ws))
+    expect(roots).toContain(realpathSync.native(docs))
+    // A missing root grants nothing until it exists (conservative spelling as-is).
+    expect(roots).toContain('/does/not/exist/anywhere-xyz')
+    expect(new Set(roots).size).toBe(roots.length)
+  })
+
+  it('read-only ignores additional writable roots', () => {
+    expect(writableRoots({
+      mode: 'read-only',
+      workspaceRoot: process.cwd(),
+      additionalWritableRoots: ['/docs'],
+    })).toEqual([])
+  })
 })

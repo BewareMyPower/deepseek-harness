@@ -13,6 +13,7 @@ import {
   IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { FolderPermission } from '@deepseek-ai/dsh-client-runtime/client'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
 import { relativeTime } from '../tree.ts'
@@ -20,6 +21,13 @@ import css from './Rows.module.css'
 
 /** The standard locale seat, prop-passed from the browser root. */
 type RowTranslate = WorkspaceBrowserProps['t']
+
+/** Locale key of each access level, for the folder row's permission subtitle. */
+const PERMISSION_LABEL: Record<FolderPermission, 'permission.read' | 'permission.write' | 'permission.both'> = {
+  read: 'permission.read',
+  write: 'permission.write',
+  both: 'permission.both',
+}
 
 /** Row display title: blank rows show the localized New Session label. */
 function displayTitle(node: SessionNode, t: RowTranslate): string {
@@ -150,6 +158,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, t }: 
       </span>
       <span className={css.projectText}>
         <span className={css.title}>{label}</span>
+        {row.cwd !== undefined && <span className={css.subtitle}>{row.cwd}</span>}
       </span>
       <span className={css.rowActions}>
         {actions !== undefined && (
@@ -249,6 +258,11 @@ export function FolderRowItem({ group, onToggle, actions, t }: {
       </span>
       <span className={css.projectText}>
         <span className={css.title}>{label}</span>
+        {row.folderPath !== undefined && (
+          <span className={css.subtitle}>
+            {row.folderPath} · {t(PERMISSION_LABEL[row.folderPermission ?? 'both'])}
+          </span>
+        )}
       </span>
       <span className={css.rowActions}>
         <Menu

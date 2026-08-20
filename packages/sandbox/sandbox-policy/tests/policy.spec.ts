@@ -141,6 +141,53 @@ describe('SandboxPolicyService', () => {
   })
 })
 
+describe('folder grants in sandbox policy resolution', () => {
+  async function folderMounted(
+    folders: Array<{ path: string; permission: 'read' | 'write' | 'both' }>,
+    config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; workspaceRoot?: string } = {},
+  ): Promise<Context> {
+    const ctx = new Context()
+    ctx.provide('folderRegistry', { foldersOfSession: () => folders })
+    await ctx.plugin(SandboxPolicyService, config)
+    return ctx
+  }
+
+  it('adds write and both folder roots as additional writable roots under workspace-write', async () => {
+    const ctx = await folderMounted([
+      { path: '/repo/docs', permission: 'read' },
+      { path: '/repo/w', permission: 'write' },
+      { path: '/repo/shared', permission: 'both' },
+    ], { mode: 'workspace-write', workspaceRoot: '/fallback' })
+
+    expect(ctx.sandboxPolicy.resolve({ session: session('sess-folders', '/projects/x') })).toEqual({
+      mode: 'workspace-write',
+      workspaceRoot: resolve('/projects/x'),
+      additionalWritableRoots: [resolve('/repo/w'), resolve('/repo/shared')],
+      sessionId: 'sess-folders',
+    })
+  })
+
+  it('keeps read-only folder grants out of every policy', async () => {
+    const ctx = await folderMounted([{ path: '/repo/docs', permission: 'read' }], { mode: 'workspace-write' })
+
+    expect(ctx.sandboxPolicy.resolve({ session: session('sess-readonly', '/projects/x') })).toEqual({
+      mode: 'workspace-write',
+      workspaceRoot: resolve('/projects/x'),
+      sessionId: 'sess-readonly',
+    })
+  })
+
+  it('contributes no folder roots without a mounted folder registry', async () => {
+    const ctx = await mounted({ mode: 'workspace-write' })
+
+    expect(ctx.sandboxPolicy.resolve({ session: session('sess-plain', '/projects/x') })).toEqual({
+      mode: 'workspace-write',
+      workspaceRoot: resolve('/projects/x'),
+      sessionId: 'sess-plain',
+    })
+  })
+})
+
 describe('sandbox:policy request context', () => {
   async function promptMounted(config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; workspaceRoot?: string } = {}): Promise<Context> {
     const ctx = new Context()
@@ -204,6 +251,20 @@ describe('sandbox:policy request context', () => {
 
     expect(await policyContext(ctx, resumed)).toContain('workspace-write')
     expect((await ctx.systemPrompt.assemble()).contexts.find(context => context.name === 'sandbox:policy')?.text).toBe('')
+  })
+
+  it('renders the writable folder grants under workspace-write', async () => {
+    const ctx = new Context()
+    ctx.provide('folderRegistry', { foldersOfSession: () => [{ path: '/repo/w', permission: 'write' }] })
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write' })
+
+    expect(await policyContext(ctx, session('sess-folder-prompt', '/projects/current'))).toBe(
+      'Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox '
+      + `may modify files under the session workspace: ${JSON.stringify(resolve('/projects/current'))}. `
+      + 'Some platform temporary areas may also be writable. '
+      + `Additional writable folders: ${JSON.stringify([resolve('/repo/w')])}.`,
+    )
   })
 })
 

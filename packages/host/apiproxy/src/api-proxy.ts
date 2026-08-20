@@ -30,7 +30,7 @@ import {
 import type { Folder, FolderRecord } from '@deepseek-ai/dsh-session-folder'
 import {
   FolderId as brandFolderId,
-  FolderMoveInvalidError, FolderSessionConflictError, FolderUnknownError, FolderUnknownSessionError,
+  FolderMoveInvalidError, FolderUnknownError, FolderUnknownSessionError,
   folderDomainState, folderRecord,
 } from '@deepseek-ai/dsh-session-folder'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
@@ -1085,6 +1085,8 @@ function folderView(folder: Folder): FolderView {
   return {
     folderId: folder.id,
     title: folder.title,
+    path: folder.path,
+    permission: folder.permission,
     sessionIds: [...folder.sessionIds],
     createdAt: folder.createdAt,
     updatedAt: folder.updatedAt,
@@ -2894,7 +2896,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async create(request) {
         try {
-          const folder = await ctx.folderRegistry.create(request.payload.title)
+          const folder = await ctx.folderRegistry.create(
+            request.payload.title,
+            request.payload.path,
+            request.payload.permission,
+          )
           return ok(request, { folder: folderView(folder) })
         } catch (error: unknown) {
           return err(request, {
@@ -2957,13 +2963,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               code: 'session-not-found',
               message: error.message,
               details: { sessionId: error.sessionId },
-            })
-          }
-          if (error instanceof FolderSessionConflictError) {
-            return err(request, {
-              code: 'folder-session-conflict',
-              message: error.message,
-              details: { sessionId: error.sessionId, folderId: error.folderId },
             })
           }
           if (error instanceof FolderUnknownError) return folderNotFound(request, error.folderId)
@@ -3631,7 +3630,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const committedFolderIds = new Set(committedFolders.map(folder => String(folder.id)))
         let committedFolderOrder = committedFolders.map(folder => folder.id)
         let committedFolderRecords = new Map<string, FolderRecord>(
-          committedFolders.map(folder => {
+          committedFolders.map((folder) => {
             const record = folderRecord.parse({
               folderId: folder.id,
               title: folder.title,

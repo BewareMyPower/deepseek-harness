@@ -28,7 +28,7 @@ import type { HostObservable, PropsLocale, PropsRenderSlots, PropsRuntime, Props
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView, FolderId, FolderView,
+  SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView, FolderId, FolderPermission, FolderView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createWorkspaceViewStore } from '../stores.ts'
 
@@ -135,13 +135,13 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
   insertSessionBefore: (workspaceId: WorkspaceId, sessionId: SessionId, beforeSessionId?: SessionId) => Promise<void>
   /** Adopt a picked host directory as a real Workspace before targeting a Session. */
   createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
-  /** Create a user session folder (trimmed non-empty title; duplicates allowed). */
-  createFolder: (title: string) => Promise<FolderView>
+  /** Create a user session folder granting access to a directory root (absolute path; trimmed non-empty title). */
+  createFolder: (title: string, path: string, permission: FolderPermission) => Promise<FolderView>
   /** Rename a user session folder. */
   renameFolder: (folderId: FolderId, title: string) => Promise<FolderView>
   /** Delete a user session folder registration (sessions return to Workspace/ungrouped). */
   deleteFolder: (folderId: FolderId) => Promise<void>
-  /** Add a session to a folder (prepends; a session accounts to at most one folder). */
+  /** Add a session to a folder (prepends; multi-membership is allowed). */
   addSessionToFolder: (folderId: FolderId, sessionId: SessionId) => Promise<FolderView>
   /** Remove a session from a folder (returns it to Workspace/ungrouped). */
   removeSessionFromFolder: (folderId: FolderId, sessionId: SessionId) => Promise<FolderView>

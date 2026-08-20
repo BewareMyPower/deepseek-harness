@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type {
-  SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView,
+  FolderPermission, FolderView, SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  deriveFlat, deriveGroups, deriveSearchResults, workspaceLabel, relativeTime,
+  deriveFlat, deriveGroups, deriveSearchResults, groupByFoldersAndWorkspaces, workspaceLabel, relativeTime,
   UNGROUPED_KEY, UNGROUPED_LABEL,
 } from '../src/client/tree.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
@@ -202,6 +202,53 @@ describe('deriveGroups', () => {
     expect(ownedGroups.find(group => group.key === 'project')!.containsCurrent).toBe(true)
     const looseGroups = deriveGroups({ ...list(owned, loose), current: loose.id }, [ws], noArchive, view())
     expect(looseGroups.find(group => group.key === UNGROUPED_KEY)!.containsCurrent).toBe(true)
+  })
+})
+
+describe('groupByFoldersAndWorkspaces', () => {
+  const folder = (
+    id: string,
+    title: string,
+    path: string,
+    permission: FolderPermission,
+    sessionIds: string[],
+  ): FolderView => ({
+    folderId: id as FolderView['folderId'], title, path, permission,
+    sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  })
+
+  it('shows a folded session under both its folder and its Workspace group (multi-membership)', () => {
+    const sessions = list(summary('s1', 1), summary('s2', 2))
+    const folders = [folder('f1', 'Docs', '/docs', 'read', ['s1'])]
+    const workspaces = [workspace('project', ['s1', 's2'])]
+    const groups = groupByFoldersAndWorkspaces(sessions, folders, workspaces, noArchive, view(['f1', 'project']))
+    expect(groups.map(group => group.key)).toEqual(['f1', 'project'])
+    expect(groups.find(g => g.kind === 'folder')!.sessions.map(session => session.id)).toEqual([sid('s1')])
+    expect(groups.find(g => g.kind === 'workspace')!.sessions.map(session => session.id)).toEqual([sid('s1'), sid('s2')])
+  })
+
+  it('carries each folder root and access level onto its group node', () => {
+    const sessions = list(summary('s1', 1))
+    const folders = [
+      folder('f1', 'Docs', '/docs', 'read', ['s1']),
+      folder('f2', 'Writable', '/w', 'write', []),
+    ]
+    const groups = groupByFoldersAndWorkspaces(sessions, folders, [], noArchive, view(['f1', 'f2']))
+    const f1 = groups.find(g => g.key === 'f1')
+    expect(f1).toMatchObject({ folderPath: '/docs', folderPermission: 'read' })
+    const f2 = groups.find(g => g.key === 'f2')
+    expect(f2).toMatchObject({ folderPath: '/w', folderPermission: 'write' })
+  })
+
+  it('keeps folder-less sessions in their Workspace and strays in Ungrouped', () => {
+    const sessions = list(summary('s1', 1), summary('loose', 2))
+    const folders = [folder('f1', 'Docs', '/docs', 'read', ['s1'])]
+    const workspaces = [workspace('project', ['s1'])]
+    const groups = groupByFoldersAndWorkspaces(
+      sessions, folders, workspaces, noArchive, view(['f1', 'project', UNGROUPED_KEY]),
+    )
+    expect(groups.map(group => group.key)).toEqual(['f1', 'project', UNGROUPED_KEY])
+    expect(groups.find(g => g.key === UNGROUPED_KEY)!.sessions.map(session => session.id)).toEqual([sid('loose')])
   })
 })
 

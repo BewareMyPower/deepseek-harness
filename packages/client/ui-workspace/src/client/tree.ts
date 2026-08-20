@@ -6,7 +6,7 @@
 import {
   indexSubagentDescendants, type PendingInteractionStatus, type SessionId, type SessionListState,
   type SessionSearchResultItem, type SessionSummary, type SubagentDescendantSummary,
-  type WorkspaceId, type WorkspaceView, type FolderId, type FolderView,
+  type WorkspaceId, type WorkspaceView, type FolderId, type FolderPermission, type FolderView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Group key for Sessions outside every Workspace. */
@@ -46,6 +46,10 @@ export interface GroupNode {
   /** Backing Folder id; present only for folder groups. */
   folderId: FolderId | undefined
   cwd: string | undefined
+  /** Directory root a folder grants access to; present only for folder groups. */
+  folderPath: string | undefined
+  /** Access level a folder grants at its root; present only for folder groups. */
+  folderPermission: FolderPermission | undefined
   /** Workspace/folder creation time (epoch ms); absent only for the ungrouped bucket. */
   createdAt: number | undefined
   label: string
@@ -92,6 +96,10 @@ interface Group {
   workspaceId: WorkspaceId | undefined
   folderId: FolderId | undefined
   cwd: string | undefined
+  /** Directory root a folder grants access to; present only for folder groups. */
+  folderPath: string | undefined
+  /** Access level a folder grants at its root; present only for folder groups. */
+  folderPermission: FolderPermission | undefined
   createdAt: number | undefined
   label: string
   sessions: SessionSummary[]
@@ -143,6 +151,8 @@ function buildGroup(
   workspaceId: WorkspaceId | undefined,
   folderId: FolderId | undefined,
   cwd: string | undefined,
+  folderPath: string | undefined,
+  folderPermission: FolderPermission | undefined,
   createdAt: number | undefined,
   label: string,
   members: readonly SessionSummary[],
@@ -152,7 +162,7 @@ function buildGroup(
   // Real Workspace/folder order comes from sessionIds. Ungrouped falls back
   // to recency until the browser supplies its persisted local order.
   if (order === 'recency') sessions.sort(byRecency)
-  return { key, kind, workspaceId, folderId, cwd, createdAt, label, sessions }
+  return { key, kind, workspaceId, folderId, cwd, folderPath, folderPermission, createdAt, label, sessions }
 }
 
 /** Apply a stored Ungrouped order and append newly loose Sessions by recency. */
@@ -197,6 +207,7 @@ function groupByWorkspace(
     }
     groups.push(buildGroup(
       workspace.workspaceId, 'workspace', workspace.workspaceId, undefined, workspace.path,
+      undefined, undefined,
       Date.parse(workspace.createdAt), workspace.title, members, 'account',
     ))
   }
@@ -206,7 +217,7 @@ function groupByWorkspace(
       s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived))
   if (stray.length > 0) {
     groups.push(buildGroup(
-      UNGROUPED_KEY, 'ungrouped', undefined, undefined, undefined, undefined,
+      UNGROUPED_KEY, 'ungrouped', undefined, undefined, undefined, undefined, undefined, undefined,
       UNGROUPED_LABEL,
       ungroupedOrder === undefined ? stray : orderedUngrouped(stray, ungroupedOrder),
       ungroupedOrder === undefined ? 'recency' : 'account',
@@ -217,12 +228,11 @@ function groupByWorkspace(
 
 /**
  * Group Sessions by Folder first, then by Host Workspace, then the ungrouped
- * bucket. A session accounts to at most one folder; a session in a folder
- * appears only under its folder group and is removed from every Workspace
- * group, so folder membership is a top-level re-grouping that hides the
- * session's Workspace placement. Folder groups lead in durable registry order,
- * followed by Workspace groups (also registry order) of the sessions not in
- * any folder, then the browser-local Ungrouped bucket.
+ * bucket. Multi-membership is the model: a session in a folder also remains
+ * under its Workspace group, so folder membership is an additional access
+ * grouping, not a replacement of the session's Workspace placement. Folder
+ * groups lead in durable registry order, followed by Workspace groups (also
+ * registry order), then the browser-local Ungrouped bucket.
  */
 export function groupByFoldersAndWorkspaces(
   list: SessionListState,
@@ -245,6 +255,7 @@ export function groupByFoldersAndWorkspaces(
     }
     raw.push(buildGroup(
       folder.folderId, 'folder', undefined, folder.folderId, undefined,
+      folder.path, folder.permission,
       Date.parse(folder.createdAt), folder.title, members, 'account',
     ))
   }
@@ -254,13 +265,13 @@ export function groupByFoldersAndWorkspaces(
     for (const id of workspace.sessionIds) {
       const summary = list.byId[id]
       if (summary === undefined) continue // account may lead the list pull; the row appears when the summary lands
-      if (inFolder.has(id)) continue // folder membership hides the workspace row
       accounted.add(id)
       if (!sessionVisible(summary, list.current, archived)) continue
       members.push(summary)
     }
     raw.push(buildGroup(
       workspace.workspaceId, 'workspace', workspace.workspaceId, undefined, workspace.path,
+      undefined, undefined,
       Date.parse(workspace.createdAt), workspace.title, members, 'account',
     ))
   }
@@ -270,7 +281,7 @@ export function groupByFoldersAndWorkspaces(
       s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived))
   if (stray.length > 0) {
     raw.push(buildGroup(
-      UNGROUPED_KEY, 'ungrouped', undefined, undefined, undefined, undefined,
+      UNGROUPED_KEY, 'ungrouped', undefined, undefined, undefined, undefined, undefined, undefined,
       UNGROUPED_LABEL,
       view.ungroupedOrder === undefined ? stray : orderedUngrouped(stray, view.ungroupedOrder),
       view.ungroupedOrder === undefined ? 'recency' : 'account',
@@ -281,8 +292,8 @@ export function groupByFoldersAndWorkspaces(
   const current = list.current
   const currentGroup = current === undefined
     ? undefined
-    : (folders.find(folder => folder.sessionIds.includes(current))?.folderId as string | undefined)
-      ?? (workspaces.find(w => w.sessionIds.includes(current as SessionId))?.workspaceId as string | undefined)
+    : (folders.find(folder => folder.sessionIds.includes(current))?.folderId)
+      ?? (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId)
         ?? UNGROUPED_KEY
   return raw.map(g => ({
     key: g.key,
@@ -290,6 +301,8 @@ export function groupByFoldersAndWorkspaces(
     workspaceId: g.workspaceId,
     folderId: g.folderId,
     cwd: g.cwd,
+    folderPath: g.folderPath,
+    folderPermission: g.folderPermission,
     createdAt: g.createdAt,
     label: g.label,
     sessionCount: g.sessions.length,
@@ -343,7 +356,7 @@ export function deriveGroups(
   const current = list.current
   const currentGroup = current === undefined
     ? undefined
-    : (workspaces.find(w => w.sessionIds.includes(current as SessionId))?.workspaceId as string | undefined)
+    : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId)
       ?? UNGROUPED_KEY
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces, archived, view.ungroupedOrder)) {
@@ -354,6 +367,8 @@ export function deriveGroups(
       workspaceId: g.workspaceId,
       folderId: g.folderId,
       cwd: g.cwd,
+      folderPath: g.folderPath,
+      folderPermission: g.folderPermission,
       createdAt: g.createdAt,
       label: g.label,
       sessionCount: g.sessions.length,

@@ -17,7 +17,7 @@ import {
   IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
-  SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView, FolderId, FolderView,
+  SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView, FolderId, FolderPermission, FolderView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { WorkspaceBrowserProps } from './contract/slots.ts'
 import type { SessionNode, SessionOrderBy } from './tree.ts'
@@ -279,8 +279,8 @@ function SessionTree({
   useNativeDragAcceptance(nativeDragActive)
   const currentGroup = current === undefined
     ? undefined
-    : (folders.find(folder => folder.sessionIds.includes(current))?.folderId as string | undefined)
-      ?? (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
+    : (folders.find(folder => folder.sessionIds.includes(current))?.folderId)
+      ?? (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId)
         ?? UNGROUPED_KEY
   useEffect(() => {
     if (current === undefined || currentGroup === undefined || Object.hasOwn(groupExpansion, currentGroup)) return
@@ -957,14 +957,20 @@ export function WorkspaceBrowser({
     })
   }
 
-  // Folder create dialog (header action). Creating a folder is a light verb:
-  // name it and it lands at the top of the folder list.
+  // Folder create dialog (header action). Creating a folder grants a session
+  // read/write access to a directory root: name it, give it an absolute
+  // directory path, and pick the access level, and it lands at the top of the
+  // folder list.
   const [folderCreateOpen, setFolderCreateOpen] = useState(false)
   const [folderCreateDraft, setFolderCreateDraft] = useState('')
+  const [folderCreatePath, setFolderCreatePath] = useState('')
+  const [folderCreatePermission, setFolderCreatePermission] = useState<FolderPermission>('both')
   const [folderCreating, setFolderCreating] = useState(false)
   const [folderCreateError, setFolderCreateError] = useState<string | null>(null)
   const folderCreateTrimmed = folderCreateDraft.trim()
-  const folderCreateBlocked = folderCreating || folderCreateTrimmed === ''
+  const folderCreatePathTrimmed = folderCreatePath.trim()
+  const folderCreateBlocked = folderCreating
+    || folderCreateTrimmed === '' || folderCreatePathTrimmed === '' || !folderCreatePathTrimmed.startsWith('/')
   const closeFolderCreate = () => {
     if (folderCreating) return
     setFolderCreateOpen(false)
@@ -974,10 +980,12 @@ export function WorkspaceBrowser({
     if (folderCreateBlocked) return
     setFolderCreating(true)
     setFolderCreateError(null)
-    createFolder(folderCreateTrimmed).then(() => {
+    createFolder(folderCreateTrimmed, folderCreatePathTrimmed, folderCreatePermission).then(() => {
       setFolderCreating(false)
       setFolderCreateOpen(false)
       setFolderCreateDraft('')
+      setFolderCreatePath('')
+      setFolderCreatePermission('both')
     }).catch((reason: unknown) => {
       setFolderCreating(false)
       setFolderCreateError(reason instanceof Error ? reason.message : String(reason))
@@ -1490,6 +1498,33 @@ export function WorkspaceBrowser({
             }
           }}
         />
+        <input
+          className={css.renameInput}
+          value={folderCreatePath}
+          placeholder="/path/to/directory"
+          aria-label={t('field.folderPath')}
+          disabled={folderCreating}
+          onChange={(e) => { setFolderCreatePath(e.target.value); setFolderCreateError(null) }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !composingRef.current) {
+              e.preventDefault()
+              confirmFolderCreate()
+            }
+          }}
+        />
+        <label className={css.folderPermissionLabel}>
+          {t('field.folderPermission')}
+          <select
+            className={css.folderPermissionSelect}
+            value={folderCreatePermission}
+            disabled={folderCreating}
+            onChange={(e) => { setFolderCreatePermission(e.target.value as FolderPermission) }}
+          >
+            <option value="read">{t('permission.read')}</option>
+            <option value="write">{t('permission.write')}</option>
+            <option value="both">{t('permission.both')}</option>
+          </select>
+        </label>
         {folderCreateError !== null && <div className={css.renameError} role="alert">{folderCreateError}</div>}
       </Modal>
 
@@ -1535,7 +1570,7 @@ export function WorkspaceBrowser({
         title={t('delete.folder')}
         {...folderDeleteTarget === null
           ? {}
-          : { description: t('delete.folderDesc', { name: folderDeleteTarget.title })}}
+          : { description: t('delete.folderDesc', { name: folderDeleteTarget.title }) }}
         footer={(
           <>
             <Button variant="outline" disabled={folderDeleting} onClick={closeFolderDelete}>{t('cancel')}</Button>

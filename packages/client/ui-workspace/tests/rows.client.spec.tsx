@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
-import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { FolderId, SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { RowDragProps } from '../src/client/rows/Rows.tsx'
-import { ProjectRowItem, SearchResultItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
+import { FolderRowItem, ProjectRowItem, SearchResultItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
 import type { GroupNode, SearchResultNode, SessionNode } from '../src/client/tree.ts'
 import { zh } from '../src/client/locales.ts'
 
@@ -116,7 +116,7 @@ describe('workspace browser rows', () => {
     const onCreate = vi.fn()
     const group: GroupNode = {
       key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
-      kind: 'workspace', folderId: undefined,
+      kind: 'workspace', folderId: undefined, folderPath: undefined, folderPermission: undefined,
       sessionCount: 1, expanded: true, containsCurrent: true, sessions: [],
     }
     render(<ProjectRowItem group={group} onToggle={onToggle} onCreate={onCreate} t={t} />)
@@ -256,7 +256,7 @@ describe('workspace browser rows', () => {
     const onToggle = vi.fn()
     const group: GroupNode = {
       key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
-      kind: 'workspace', folderId: undefined,
+      kind: 'workspace', folderId: undefined, folderPath: undefined, folderPermission: undefined,
       sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
     }
     render(<ProjectRowItem
@@ -288,15 +288,16 @@ describe('workspace browser rows', () => {
     try {
       const group: GroupNode = {
         key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
-        kind: 'workspace', folderId: undefined,
+        kind: 'workspace', folderId: undefined, folderPath: undefined, folderPermission: undefined,
         sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
       }
       render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
       fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
       act(() => { vi.advanceTimersByTime(500) })
-      // Card body: full title + cwd + absolute creation time.
+      // Card body: full title + cwd + absolute creation time. The row's own
+      // subtitle also shows the cwd, so the path appears twice once hovered.
       expect(screen.getAllByText('Project')).toHaveLength(2)
-      expect(screen.getByText('/projects/project')).toBeTruthy()
+      expect(screen.getAllByText('/projects/project')).toHaveLength(2)
       expect(screen.getByText(/^创建于 \d+年\d+月\d+日 /)).toBeTruthy()
       await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制: /projects/project' })) })
       expect(writeText).toHaveBeenCalledWith('/projects/project')
@@ -310,11 +311,22 @@ describe('workspace browser rows', () => {
   it('ungrouped bucket renders no workspace menu', () => {
     const group: GroupNode = {
       key: '', workspaceId: undefined, cwd: undefined, createdAt: undefined, label: 'Ungrouped',
-      kind: 'ungrouped', folderId: undefined,
+      kind: 'ungrouped', folderId: undefined, folderPath: undefined, folderPermission: undefined,
       sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
     }
     render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
     expect(screen.queryByRole('button', { name: /工作区/ })).toBeNull()
+  })
+
+  it('folder row shows its directory root and translated access level', () => {
+    const group: GroupNode = {
+      key: 'f1', workspaceId: undefined, cwd: undefined, createdAt: 0, label: 'Docs',
+      kind: 'folder', folderId: 'f1' as FolderId, folderPath: '/docs', folderPermission: 'read',
+      sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    }
+    render(<FolderRowItem group={group} onToggle={vi.fn()} actions={{ rename: vi.fn(), delete: vi.fn() }} t={t} />)
+    expect(screen.getByText('Docs')).toBeTruthy()
+    expect(screen.getByText('/docs · 只读')).toBeTruthy()
   })
 
   it('blank New Session rows carry no menu, no time label, and no hover-card time', () => {

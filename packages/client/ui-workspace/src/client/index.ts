@@ -99,7 +99,7 @@ export function apply(ctx: ClientContext): void {
       await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
     },
     createWorkspace: input => ctx.workspaces.create(input),
-    createFolder: title => ctx.folders.create(title),
+    createFolder: (title, path, permission) => ctx.folders.create(title, path, permission),
     renameFolder: (folderId, title) => ctx.folders.rename(folderId, title),
     deleteFolder: folderId => ctx.folders.delete(folderId),
     addSessionToFolder: (folderId, sessionId) => ctx.folders.addSession(folderId, sessionId),

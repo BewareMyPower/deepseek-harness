@@ -8,6 +8,7 @@
     "rewriteRelativeImportExtensions": false
   },
   "include": [
+    "src/**/*.ts",
     "apps/web/tests/scaffold.ts",
     "apps/web/tests/default-model.e2e.ts",
     "apps/web/tests/github-ready-review.e2e.ts",

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'tsdown'
 import { typertPlugin } from './packages/typert/generator/lib/types/tsdown-plugin.js'
 
@@ -15,9 +16,11 @@ function isBuildFaceClient(value: unknown): boolean {
  */
 export default defineConfig(({ env }) => {
   const client = isBuildFaceClient(env?.DSH_BUILD_FACE)
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { name?: string }
+  const rootPackage = pkg.name === '@deepseek-ai/dsh-root'
   return {
     workspace: ['vendor/*', 'packages/*/*', 'apps/cli'],
-    entry: client ? '' : ['lib/types/{index,invariant,startup}.js'],
+    entry: rootPackage ? '' : client ? '' : ['lib/types/{index,invariant,startup}.js'],
     outDir: 'lib',
     format: ['esm'],
     platform: 'node',
